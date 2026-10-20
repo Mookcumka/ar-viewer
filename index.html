@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AR Cube · Revit PoC</title><meta name="theme-color" content="#101923">
+<link rel="manifest" href="./manifest.webmanifest"><link rel="icon" href="./icon.svg">
+<style>body{margin:0;background:#101923;color:white;font:16px system-ui}#info{position:fixed;z-index:1000;top:max(8px,env(safe-area-inset-top));left:8px;right:8px;padding:12px;border-radius:8px;background:#141b24e6}p{margin:8px 0}a{color:#8dd2ff}button{padding:12px;font:inherit}small{display:block;margin-top:8px}</style>
+<script defer src="./ar-data.js"></script><script defer src="./vendor/aframe.min.js"></script>
+<script defer src="./vendor/aframe-ar.js"></script><script defer src="./offline.js"></script><script defer src="./viewer.js"></script>
+</head><body><div id="info"><p id="status" role="status">Проверка QR…</p>
+<p>Наведите камеру на Hiro. Чёрная рамка на бумаге должна быть 40 × 40 мм.</p>
+<button id="start" disabled>Включить AR</button> <a href="./scan.html">Сканировать другой QR</a>
+<small id="offline" role="status">Проверка офлайн-ресурсов…</small></div></body></html>
