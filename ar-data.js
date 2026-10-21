@@ -8,18 +8,28 @@
     let raw;
     try { raw = decodeURIComponent(fragment.replace(/^#/, "")); }
     catch (_) { throw new Error("Неверная кодировка QR"); }
-    const walls = /^AR4;walls;scale=(\d{1,5});data=([A-Za-z0-9_-]+)$/.exec(raw);
+    // Optional, in this order: c=RRGGBB colour of the whole model, s=sheet label (shown in the viewer).
+    const extra = "(?:;c=([0-9A-Fa-f]{6}))?(?:;s=([A-Za-z0-9.-]{1,16}))?";
+    const walls = new RegExp("^AR4;walls;scale=(\\d{1,5})" + extra + ";data=([A-Za-z0-9_-]+)$").exec(raw);
     if (walls) {
       const scale = Number(walls[1]);
       if (!(scale >= 1 && scale <= 10000)) throw new Error("Масштаб должен быть от 1 до 10000");
-      return { kind: "walls", scale, data: walls[2], payload: raw, unit: 1000 / (40 * scale) };
+      return { kind: "walls", scale, data: walls[4], payload: raw, unit: 1000 / (40 * scale), color: rgb(walls[2]), sheet: walls[3] || "" };
     }
-    const match = /^AR1;cube;(\d{1,5});(\d{1,5});(\d{1,5});scale=(\d{1,5})$/.exec(raw);
+    const match = new RegExp("^AR1;cube;(\\d{1,5});(\\d{1,5});(\\d{1,5});scale=(\\d{1,5})" + extra + "$").exec(raw);
     if (!match) throw new Error("QR не содержит данные AR Style");
-    const [w, d, h, scale] = match.slice(1).map(Number);
+    const [w, d, h, scale] = match.slice(1, 5).map(Number);
     if (![w, d, h, scale].every(n => Number.isSafeInteger(n) && n >= 1 && n <= 10000))
       throw new Error("Размеры и масштаб должны быть от 1 до 10000");
-    return { kind: "cube", w, d, h, scale, payload: raw, x: w / scale / 40, y: h / scale / 40, z: d / scale / 40 };
+    return { kind: "cube", w, d, h, scale, payload: raw, x: w / scale / 40, y: h / scale / 40, z: d / scale / 40,
+      color: rgb(match[5]), sheet: match[6] || "" };
+  }
+  function rgb(hex) {
+    return hex ? [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16)) : null;
+  }
+  /** Short human title for the viewer, e.g. «Куб 2000 × 2000 × 2000». */
+  function title(value) {
+    return value.kind === "walls" ? "Стены · 1:" + value.scale : `Куб ${value.w} × ${value.d} × ${value.h} · 1:${value.scale}`;
   }
   function fromUrl(text) {
     let url;
@@ -70,7 +80,7 @@
     catch (_) { throw new Error("Повреждены сжатые данные стен"); }
     return readWalls(buffer);
   }
-  const api = { parse, fromUrl, readWalls, decodeWalls };
+  const api = { parse, fromUrl, title, readWalls, decodeWalls };
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.ARCubeData = api;
 })(typeof globalThis === "object" ? globalThis : this);
