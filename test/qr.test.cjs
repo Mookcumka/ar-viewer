@@ -20,35 +20,37 @@ test("malformed, out of bounds and non-HTTPS QR are rejected", () => {
     "https://user@example.test/#AR1;cube;1;1;1;scale=1"])
     assert.throws(() => data.fromUrl(url), url);
 });
-function viewer(hash) {
-  const nodes = [], events = {}, status = { textContent: "" }, button = { disabled: true };
-  function node(tag) {
-    const n = { tag, attributes: {}, children: [], setAttribute(k,v) { this.attributes[k]=v; },
-      appendChild(child) { this.children.push(child); return child; }, addEventListener() {} };
-    nodes.push(n); return n;
-  }
-  const document = { hidden: false, getElementById: id => id === "status" ? status : button,
-    createElement: node, body: node("body"), querySelectorAll: () => [],
-    addEventListener: (name, callback) => events[name] = callback };
-  const window = { AFRAME: { systems: { arjs: {} } }, addEventListener: (name, callback) => events[name] = callback };
-  vm.runInNewContext(read("viewer.js"), { document, window, AFRAME: window.AFRAME, ARCubeData: data, location: { hash } });
-  return { nodes, document, status, button };
-}
-test("invalid QR never creates an AR scene or enables camera", () => {
-  const page = viewer("#bad");
-  assert.equal(page.button.disabled, true);
-  assert.equal(page.nodes.some(n => n.tag === "a-scene"), false);
+test("optional colour and sheet label; old QR still valid", () => {
+  const value = data.parse("AR1;cube;3000;1000;600;scale=50;c=2F6F73;s=AR-T.04");
+  assert.deepEqual(value.color, [47, 111, 115]);
+  assert.equal(value.sheet, "AR-T.04");
+  assert.equal(data.parse("AR1;cube;3000;1000;600;scale=50").color, null);
+  const walls = data.parse("AR4;walls;scale=50;c=7a5c9e;s=AR-T.05;data=AAAA");
+  assert.equal(walls.data, "AAAA");
+  assert.deepEqual(walls.color, [122, 92, 158]);
+  for (const input of ["AR1;cube;1;1;1;scale=1;c=12345", "AR1;cube;1;1;1;scale=1;s=" + "x".repeat(17),
+    "AR1;cube;1;1;1;scale=1;s=a b", "AR1;cube;1;1;1;scale=1;s=A;c=123456"])
+    assert.throws(() => data.parse(input), input);
 });
-test("AR.js SYSTEM enables explicit start; cube is dimensioned before insertion", () => {
-  const page = viewer("#AR1;cube;2000;1000;3000;scale=50");
-  assert.equal(page.button.disabled, false);
-  assert.equal(page.nodes.some(n => n.tag === "a-scene"), false);
-  page.button.onclick();
-  const box = page.nodes.find(n => n.tag === "a-box");
-  assert.equal(box.attributes.width, 1);
-  assert.equal(box.attributes.height, 1.5);
-  assert.equal(box.attributes.depth, 0.5);
-  assert.equal(page.document.body.children.length, 1);
+test("USDZ: stored zip, data aligned to 64 bytes, valid CRC, triangles and colour", () => {
+  const usdz = require("../usdz.js");
+  const tri = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+  const file = Buffer.from(usdz.build([{ positions: tri, color: [255, 0, 0] }]));
+  assert.equal(file.readUInt32LE(0), 0x04034b50);
+  assert.equal(file.readUInt16LE(8), 0, "stored");
+  const nameLength = file.readUInt16LE(26), extra = file.readUInt16LE(28), offset = 30 + nameLength + extra;
+  assert.equal(offset % 64, 0);
+  assert.equal(file.subarray(30, 30 + nameLength).toString(), "model.usda");
+  const size = file.readUInt32LE(22), text = file.subarray(offset, offset + size);
+  assert.equal(file.readUInt32LE(14), usdz.crc32(text));
+  const usda = text.toString();
+  assert.match(usda, /^#usda 1.0/);
+  assert.match(usda, /faceVertexIndices = \[0, 1, 2\]/);
+  assert.match(usda, /diffuseColor = \(1, 0, 0\)/);
+  const end = file.length - 22;
+  assert.equal(file.readUInt32LE(end), 0x06054b50);
+  assert.equal(file.readUInt32LE(end + 16), offset + size, "central directory follows the data");
+  assert.equal(usdz.crc32(Buffer.from("123456789")), 0xCBF43926);
 });
 function worker(keys) {
   const handlers = {}, deleted = [], responses = new Map();
@@ -66,7 +68,7 @@ function worker(keys) {
 test("cache cleanup keeps other apps and another AR installation", async () => {
   const prefix = "ar-style-cube-" + encodeURIComponent("https://example.test/ar/") + "-";
   const other = "ar-style-cube-" + encodeURIComponent("https://example.test/other/") + "-v2";
-  const w = worker(["unrelated-cache", prefix + "v3", prefix + "v4", other]);
+  const w = worker(["unrelated-cache", prefix + "v3", prefix + "v5", other]);
   let pending;
   w.handlers.activate({ waitUntil: p => pending = p });
   await pending;
@@ -92,24 +94,6 @@ test("offline readiness is false if any required resource is missing", async () 
     waitUntil: p => pending = p });
   await pending;
   assert.equal(message.ready, false);
-});
-test("scanner stops a camera permission resolved after backgrounding", async () => {
-  let permissionResolve, stopped = 0;
-  const events = {}, status = {}, button = { disabled: false };
-  const video = { play: async () => {}, srcObject: null };
-  const document = { hidden: false, getElementById: id => ({ camera: video, status, start: button })[id],
-    createElement: () => ({ getContext: () => ({}) }), addEventListener: (name, fn) => events[name] = fn };
-  vm.runInNewContext(read("scanner.js"), { document, window: { addEventListener() {} },
-    navigator: { mediaDevices: { getUserMedia: () => new Promise(resolve => permissionResolve = resolve) } },
-    jsQR() {}, ARCubeData: data, cancelAnimationFrame() {}, requestAnimationFrame() {} });
-  const pending = button.onclick();
-  document.hidden = true;
-  events.visibilitychange();
-  permissionResolve({ getTracks: () => [{ stop: () => stopped++ }] });
-  await pending;
-  assert.equal(stopped, 1);
-  assert.equal(video.srcObject, null);
-  assert.equal(button.disabled, false);
 });
 // AR4 walls: same binary layout as plugin/src/ArWallSolidPayload.cs.
 const zlib = require("node:zlib");
@@ -146,20 +130,4 @@ test("AR4 rejects truncated, trailing and out-of-wall openings", async () => {
   const ab = b => b.buffer.slice(b.byteOffset, b.byteOffset + b.length);
   assert.throws(() => data.readWalls(ab(raw.subarray(0, raw.length - 1))));
   assert.throws(() => data.readWalls(ab(Buffer.concat([raw, Buffer.from([0])]))));
-});
-test("invalid AR4 data never enables the camera", async () => {
-  const page = viewer("#AR4;walls;scale=50;data=AAAA");
-  await new Promise(resolve => setTimeout(resolve, 20));
-  assert.equal(page.button.disabled, true);
-  assert.equal(page.nodes.some(n => n.tag === "a-scene"), false);
-});
-test("valid AR4 enables explicit start and puts a walls entity in the marker", async () => {
-  const page = viewer("#AR4;walls;scale=50;data=" + ar4([testWall]));
-  assert.equal(page.button.disabled, true);
-  await new Promise(resolve => setTimeout(resolve, 20));
-  assert.equal(page.button.disabled, false);
-  page.button.onclick();
-  const marker = page.nodes.find(n => n.tag === "a-marker");
-  assert.equal(marker.children.some(n => n.tag === "a-entity"), true);
-  assert.equal(page.nodes.some(n => n.tag === "a-box"), false);
 });

@@ -1,7 +1,7 @@
 // Scope-specific names avoid deleting caches belonging to other apps on the origin.
 const PREFIX = "ar-style-cube-" + encodeURIComponent(self.registration.scope) + "-";
-const CACHE = PREFIX + "v4";
-const CORE = ["./", "./index.html", "./scan.html", "./manifest.webmanifest", "./icon.svg", "./ar-data.js", "./viewer.js", "./scanner.js", "./offline.js"];
+const CACHE = PREFIX + "v5";
+const CORE = ["./", "./index.html", "./scan.html", "./manifest.webmanifest", "./icon.svg", "./ar-data.js", "./viewer.js", "./usdz.js", "./quicklook.svg", "./offline.js"];
 const VENDOR = ["./vendor/aframe.min.js", "./vendor/aframe-ar.js", "./vendor/jsQR.js", "./vendor/patt.hiro", "./vendor/camera_para.dat"];
 const RESOURCES = [...CORE, ...VENDOR];
 const URLS = new Set(RESOURCES.map(path => new URL(path, self.registration.scope).href));

@@ -1,12 +1,12 @@
 {
-  "name": "AR Style — Cube Viewer",
-  "short_name": "AR Cube",
+  "name": "AR Style — просмотр",
+  "short_name": "AR Style",
   "description": "Считывание геометрии с QR и AR-просмотр на листе",
-  "start_url": "./scan.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#101923",
-  "theme_color": "#101923",
+  "background_color": "#111416",
+  "theme_color": "#111416",
   "icons": [
     {
       "src": "./icon.svg",
