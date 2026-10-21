@@ -68,7 +68,7 @@ function worker(keys) {
 test("cache cleanup keeps other apps and another AR installation", async () => {
   const prefix = "ar-style-cube-" + encodeURIComponent("https://example.test/ar/") + "-";
   const other = "ar-style-cube-" + encodeURIComponent("https://example.test/other/") + "-v2";
-  const w = worker(["unrelated-cache", prefix + "v3", prefix + "v5", other]);
+  const w = worker(["unrelated-cache", prefix + "v3", prefix + "v6", other]);
   let pending;
   w.handlers.activate({ waitUntil: p => pending = p });
   await pending;
@@ -130,4 +130,30 @@ test("AR4 rejects truncated, trailing and out-of-wall openings", async () => {
   const ab = b => b.buffer.slice(b.byteOffset, b.byteOffset + b.length);
   assert.throws(() => data.readWalls(ab(raw.subarray(0, raw.length - 1))));
   assert.throws(() => data.readWalls(ab(Buffer.concat([raw, Buffer.from([0])]))));
+});
+// AR5: same split as plugin/src/ArQrParts.cs.
+function split(payload, count) {
+  const id = (data.crc32(payload) & 0xFFFF).toString(16).padStart(4, "0"), size = Math.ceil(payload.length / count);
+  return Array.from({ length: count }, (_, i) => `AR5;id=${id};part=${i + 1};of=${count};data=${payload.slice(i * size, (i + 1) * size)}`);
+}
+test("AR5 parts join in any order into an anchored AR4 model", async () => {
+  const payload = "AR4;walls;scale=100;c=B08A2E;s=AR-T.07;m=1;data=" + ar4([testWall]);
+  const parts = split(payload, 3).map(p => data.parse(p));
+  assert.equal(parts[1].kind, "part");
+  assert.equal(data.join([parts[2], parts[0]]), null, "missing part");
+  const model = data.join([parts[2], parts[0], parts[1]]);
+  assert.equal(model.kind, "walls");
+  assert.equal(model.anchored, true);
+  assert.equal(model.scale, 100);
+  assert.equal((await data.decodeWalls(model.data)).length, 1);
+  assert.equal(data.parse("AR4;walls;scale=50;data=AAAA").anchored, false);
+});
+test("AR5 rejects mixed models, corrupted parts and bad numbering", () => {
+  const a = split("AR1;cube;2000;2000;2000;scale=50", 2).map(p => data.parse(p));
+  const b = split("AR1;cube;1000;1000;1000;scale=50", 2).map(p => data.parse(p));
+  assert.throws(() => data.join([a[0], b[1]]));
+  const broken = data.parse(split("AR1;cube;2000;2000;2000;scale=50", 2)[1].replace(/data=./, "data=X"));
+  assert.throws(() => data.join([a[0], broken]), /контрольная/);
+  for (const bad of ["AR5;id=abcd;part=3;of=2;data=x", "AR5;id=abcd;part=1;of=1;data=x", "AR5;id=ABCD;part=1;of=2;data=x"])
+    assert.throws(() => data.parse(bad), bad);
 });
