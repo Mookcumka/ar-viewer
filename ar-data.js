@@ -1,8 +1,8 @@
 /* Shared QR contract. No camera or DOM side effects. */
 (function (root) {
   "use strict";
-  // AR4 walls fit in one QR (~2000 URL characters); anything longer is not ours.
-  const MAX_FRAGMENT = 4096, MAX_WALLS = 10000, MAX_OPENINGS = 255;
+  // One QR holds ~2000 URL characters; AR5 joins up to 9 of them.
+  const MAX_FRAGMENT = 20000, MAX_WALLS = 10000, MAX_OPENINGS = 255;
   function parse(fragment) {
     if (typeof fragment !== "string" || fragment.length > MAX_FRAGMENT) throw new Error("Слишком длинные параметры QR");
     let raw;
@@ -10,11 +10,20 @@
     catch (_) { throw new Error("Неверная кодировка QR"); }
     // Optional, in this order: c=RRGGBB colour of the whole model, s=sheet label (shown in the viewer).
     const extra = "(?:;c=([0-9A-Fa-f]{6}))?(?:;s=([A-Za-z0-9.-]{1,16}))?";
-    const walls = new RegExp("^AR4;walls;scale=(\\d{1,5})" + extra + ";data=([A-Za-z0-9_-]+)$").exec(raw);
+    // AR5: one payload over several QR; join() puts the parts back together.
+    const part = /^AR5;id=([0-9a-f]{4});part=([1-9]);of=([2-9]);data=([A-Za-z0-9_;=.-]{1,2400})$/.exec(raw);
+    if (part) {
+      const [n, of] = [Number(part[2]), Number(part[3])];
+      if (n > of) throw new Error("Неверный номер части QR");
+      return { kind: "part", id: part[1], part: n, of, chunk: part[4], payload: raw };
+    }
+    // m=1: X/Y are millimetres from the marker centre along the sheet, the model stands on its plan.
+    const walls = new RegExp("^AR4;walls;scale=(\\d{1,5})" + extra + "(;m=1)?;data=([A-Za-z0-9_-]+)$").exec(raw);
     if (walls) {
       const scale = Number(walls[1]);
       if (!(scale >= 1 && scale <= 10000)) throw new Error("Масштаб должен быть от 1 до 10000");
-      return { kind: "walls", scale, data: walls[4], payload: raw, unit: 1000 / (40 * scale), color: rgb(walls[2]), sheet: walls[3] || "" };
+      return { kind: "walls", scale, data: walls[5], payload: raw, unit: 1000 / (40 * scale), color: rgb(walls[2]), sheet: walls[3] || "",
+        anchored: !!walls[4] };
     }
     const match = new RegExp("^AR1;cube;(\\d{1,5});(\\d{1,5});(\\d{1,5});scale=(\\d{1,5})" + extra + "$").exec(raw);
     if (!match) throw new Error("QR не содержит данные AR Style");
@@ -24,12 +33,36 @@
     return { kind: "cube", w, d, h, scale, payload: raw, x: w / scale / 40, y: h / scale / 40, z: d / scale / 40,
       color: rgb(match[5]), sheet: match[6] || "" };
   }
+  function crc32(text) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < text.length; i++) {
+      c ^= text.charCodeAt(i) & 0xFF;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    }
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+  /** Joins AR5 parts of one model (any order). Returns the parsed model, or null while parts are missing. */
+  function join(parts) {
+    if (!parts.length) return null;
+    const { id, of } = parts[0], byNumber = new Map();
+    for (const p of parts) {
+      if (p.kind !== "part" || p.id !== id || p.of !== of) throw new Error("Части разных моделей");
+      byNumber.set(p.part, p.chunk);
+    }
+    if (byNumber.size < of) return null;
+    const text = Array.from({ length: of }, (_, i) => byNumber.get(i + 1)).join("");
+    if ((crc32(text) & 0xFFFF).toString(16).padStart(4, "0") !== id) throw new Error("Части QR повреждены: контрольная сумма не сошлась");
+    const value = parse(text);
+    if (value.kind === "part") throw new Error("Вложенные части QR не поддерживаются");
+    return value;
+  }
   function rgb(hex) {
     return hex ? [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16)) : null;
   }
   /** Short human title for the viewer, e.g. «Куб 2000 × 2000 × 2000». */
   function title(value) {
-    return value.kind === "walls" ? "Стены · 1:" + value.scale : `Куб ${value.w} × ${value.d} × ${value.h} · 1:${value.scale}`;
+    if (value.kind === "part") return `Часть ${value.part} из ${value.of}`;
+    return value.kind === "walls" ? "Стены · 1:" + value.scale + (value.anchored ? " · на плане" : "") : `Куб ${value.w} × ${value.d} × ${value.h} · 1:${value.scale}`;
   }
   function fromUrl(text) {
     let url;
@@ -80,7 +113,7 @@
     catch (_) { throw new Error("Повреждены сжатые данные стен"); }
     return readWalls(buffer);
   }
-  const api = { parse, fromUrl, title, readWalls, decodeWalls };
+  const api = { parse, join, fromUrl, title, crc32, readWalls, decodeWalls };
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.ARCubeData = api;
 })(typeof globalThis === "object" ? globalThis : this);

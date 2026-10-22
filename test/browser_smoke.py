@@ -50,6 +50,13 @@ def qr_video(text):
     return str(path)
 
 
+def split(payload, count):
+    import zlib
+    ident = format(zlib.crc32(payload.encode()) & 0xFFFF, '04x')
+    size = -(-len(payload) // count)
+    return [f'AR5;id={ident};part={i + 1};of={count};data={payload[i * size:(i + 1) * size]}' for i in range(count)]
+
+
 walls = 'AR4;walls;scale=50;c=7A5C9E;s=AR-T.05;data=' + ar4()
 cube = 'AR1;cube;2000;2000;2000;scale=50;c=2F6F73;s=AR-T.03'
 results = {}
@@ -94,6 +101,18 @@ navigator.mediaDevices.getUserMedia = (...args) => { window.cameraRequests++; re
     assert page.evaluate("document.querySelector('[ar-follow]').object3D.children.length") == 1
     assert page.evaluate("document.getElementById('toast').textContent").startswith('Лист AR-T.05')
     results['new_qr_swaps_model_without_reload_or_new_camera'] = True
+    # AR5: three parts of an anchored model arrive one by one (as from the live camera); the model appears after the third.
+    anchored = 'AR4;walls;scale=100;c=B08A2E;s=AR-T.07;m=1;data=' + ar4()
+    for i, part in enumerate(split(anchored, 3)):
+        page.evaluate(f'location.hash = {json.dumps(quote(part))}')
+        if i < 2:
+            page.wait_for_function(f"document.getElementById('title').textContent === 'Части {i + 1} из 3'")
+    page.wait_for_function("document.getElementById('sheet').textContent === 'Лист AR-T.07'")
+    position = page.evaluate("(() => { const m = ARViewer.model(); return [m.data.anchored, m.group.children[0].position.x, m.group.children[0].position.z, m.holder.scale.x]; })()")
+    assert position == [True, 0, 0, 0.25], position
+    results['three_qr_parts_join_into_anchored_model'] = True
+    page.evaluate(f'location.hash = {json.dumps(quote(walls))}')
+    page.wait_for_function("document.getElementById('sheet').textContent === 'Лист AR-T.05'")
     usdz = page.evaluate('ARViewer.usdz().arrayBuffer().then(b => btoa(String.fromCharCode(...new Uint8Array(b))))')
     page.goto(base + 'scan.html#' + quote(cube))
     page.wait_for_url('**/index.html#*')

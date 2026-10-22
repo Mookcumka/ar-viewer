@@ -58,9 +58,10 @@
       mesh.userData.rgb = rgb;
       inner.add(mesh);
     }
-    // Until sheet registration exists, stand the model on the marker centre.
+    // Anchored (m=1): coordinates already run from the marker centre, the model stands on its plan.
+    // Otherwise stand the model on the marker centre.
     const bounds = new THREE.Box3().setFromObject(inner), center = bounds.getCenter(new THREE.Vector3());
-    inner.position.set(-center.x, -bounds.min.y, -center.z);
+    inner.position.set(data.anchored ? 0 : -center.x, -bounds.min.y, data.anchored ? 0 : -center.z);
     const group = new THREE.Group();
     group.add(inner);
     return group;
@@ -80,8 +81,26 @@
     return new Blob([ARUsdz.build(meshes)], { type: "model/vnd.usdz+zip" });
   }
 
+  // AR5 parts of the model being collected, by id; a part of another model starts over.
+  let parts = [];
+
   async function load(payload, announce) {
-    const data = ARCubeData.parse(payload);
+    let data = ARCubeData.parse(payload);
+    if (data.kind === "part") {
+      if (parts.length && parts[0].id !== data.id) parts = [];
+      if (!parts.some(p => p.part === data.part)) parts.push(data);
+      const joined = ARCubeData.join(parts);
+      if (!joined) {
+        const have = parts.map(p => p.part).sort((a, b) => a - b);
+        ui.title.textContent = `Части ${have.length} из ${data.of}`;
+        ui.sheet.textContent = "Наведите камеру на остальные QR: " +
+          Array.from({ length: data.of }, (_, i) => i + 1).filter(n => !have.includes(n)).join(", ");
+        toast(`Часть ${data.part} из ${data.of} · ${have.length}/${data.of}`);
+        return;
+      }
+      parts = [];
+      data = joined;
+    }
     if (model && model.data.payload === data.payload) return;
     const ticket = loading = {};
     const group = data.kind === "walls" ? buildWalls(data, await ARCubeData.decodeWalls(data.data)) : buildCube(data);
