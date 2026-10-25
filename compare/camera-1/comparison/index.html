@@ -1,0 +1,12 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AR Studio · сравнительные листы</title><link rel="icon" href="../icon.svg">
+<style>
+*{box-sizing:border-box}body{margin:0;background:#e7e5dc;color:#172a29;font:16px/1.5 system-ui}nav{display:flex;gap:12px;align-items:center;padding:20px;flex-wrap:wrap}button,a{font:inherit;padding:10px 16px}main{margin:0 auto;width:297mm;height:210mm;background:white;position:relative;padding:18mm;overflow:hidden}h1{margin:0;font-size:34px}p{max-width:650px}.target{position:absolute;width:40mm;height:40mm;image-rendering:pixelated;bottom:45mm}.hiro{left:55mm;overflow:hidden}.hiro img{position:absolute;max-width:none;width:56.313mm;height:48.755mm;left:-5.345mm;top:-2.857mm}.qr{left:135mm}.label{position:absolute;bottom:31mm;left:55mm}.rule{width:100mm;border-bottom:2px solid;position:absolute;bottom:18mm;left:55mm}small{color:#52605c}@media print{nav{display:none}body{background:white}main{margin:0}@page{size:A4 landscape;margin:0}}
+</style>
+<nav><button id="a">Лист A</button><button id="b">Лист B</button><button onclick="print()">PDF / печать</button><a href="../index.html">Просмотрщик</a><small>Один лист на экране. Масштаб экрана зафиксировать, полная ширина QR — 40 мм.</small></nav>
+<main><small>AR STUDIO / CAMERA COMPARE 1</small><h1 id="title">Лист A · куб</h1><p id="description"></p><p>Откройте камеру → считайте QR → наведите на метки. Safari следует за Hiro; ARKit распознаёт уникальный QR как изображение и закрепляет модель в пространстве.</p><p>Модель находится над Hiro. При вертикальном экране она выступает из плоскости экрана. Не двигайте экран и не меняйте масштаб PDF в ходе теста.</p><div class="target hiro"><img src="hiro.jpg" alt="Hiro"></div><img id="qr" class="target qr" src="sheet-a.png" alt="Уникальный QR листа A"><div class="label">Центры меток: 80 мм · полный QR: 40 мм</div><div class="rule">100 мм — проверьте линейкой</div></main>
+<script>
+const qr=document.getElementById('qr');
+function show(id){qr.src=id==='A'?'sheet-a.png':'sheet-b.png';qr.alt='Уникальный QR листа '+id;document.getElementById('title').textContent='Лист '+id+(id==='A'?' · куб':' · брус');document.getElementById('description').textContent=id==='A'?'2000 × 2000 × 2000 мм · 1:50 · бирюзовый · на листе 40 × 40 × 40 мм':'3000 × 1000 × 600 мм · 1:50 · терракотовый · на листе 60 × 20 × 12 мм';}
+document.getElementById('a').onclick=()=>show('A');document.getElementById('b').onclick=()=>show('B');show('A');
+</script></html>
