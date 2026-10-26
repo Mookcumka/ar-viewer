@@ -17,7 +17,7 @@
   const diagnostic = new URLSearchParams(location.search).get("diagnostics") === "1";
   const legacyIntro = $("intro").textContent;
   $("diagnostics").hidden = !diagnostic;
-  const report = { schema: "ARViewer-unified-1", build: "unified-20261026-1", userAgent: navigator.userAgent, events: [], scene: null,
+  const report = { schema: "ARViewer-unified-1", build: "unified-meshopt-20261026-2", userAgent: navigator.userAgent, events: [], scene: null,
     acceptance: { source: null, cameraQrRead: false, integrityVerified: false, usdzCreated: false,
       quickLookRequested: false, actualAR: "owner verification required", realRevitProvenance: "owner verification required" } };
   function log(type, detail = {}) { report.events.push({ type, at: new Date().toISOString(), ...detail }); if (report.events.length > 160) report.events.shift(); }
@@ -147,7 +147,7 @@
     if (source === "camera") report.acceptance.cameraQrRead = true;
     ui.title.textContent = `Части ${p.received} из ${p.count}`; ui.sheet.textContent = "Геометрия Exporto";
     ui.status.textContent = p.complete ? "Проверяю SHA-256 и восстанавливаю модель…" : "Считайте оставшиеся QR этого листа";
-    log("qrl1-part", { hash: p.hash, index: packet.index, count: p.count, source });
+    log("qrl-part", { version: packet.version, hash: p.hash, index: packet.index, count: p.count, source });
     if (!p.complete) return;
     const ticket = generation; verifying = true; let group = null, blob = null;
     try {
@@ -157,11 +157,11 @@
       if (blob.size > 32 * 1024 * 1024) throw new Error("USDZ превышает 32 МиБ. Модель не обрезана");
       if (ticket !== generation) { dispose(group); return; }
       // CBX1 has no paper/Hiro placement contract: don't invent 1:N from exportScale.
-      model = { data: { kind: "mesh", identity: decoded.sha256, exportScale: decoded.scale }, group, holder: null };
+      model = { data: { kind: "mesh", identity: decoded.sha256, exportScale: decoded.scale, codec: decoded.codec }, group, holder: null };
       group = null; acceptedHash = decoded.sha256; collecting = false;
       usdzUrl = URL.createObjectURL(blob); ui.look.href = usdzUrl; ui.look.hidden = !quickLook;
       $("save-model").href = usdzUrl; $("save-model").hidden = false;
-      report.scene = { sha256: decoded.sha256, parts: decoded.qrCount, compressedBytes: decoded.compressedBytes, rawBytes: decoded.rawBytes,
+      report.scene = { packetVersion: packet.version, codec: decoded.codec, decodeMilliseconds: decoded.decodeMilliseconds, sha256: decoded.sha256, parts: decoded.qrCount, compressedBytes: decoded.compressedBytes, rawBytes: decoded.rawBytes,
         usdzBytes: blob.size, meshes: decoded.meshes.length, vertices: decoded.vertices, triangles: decoded.triangles,
         extentMeters: decoded.extent, exportScale: decoded.scale, originMeters: decoded.originMeters, excluded: decoded.excluded };
       report.acceptance.integrityVerified = true; report.acceptance.usdzCreated = true;
@@ -315,7 +315,7 @@
       const qr = jsQR(image.data, image.width, image.height, { inversionAttempts: "dontInvert" });
       if (!qr) return;
       const raw = Uint8Array.from(qr.binaryData);
-      const binary = raw.length >= 4 && raw[0] === 81 && raw[1] === 82 && raw[2] === 76 && raw[3] === 49;
+      const binary = raw.length >= 4 && raw[0] === 81 && raw[1] === 82 && raw[2] === 76 && (raw[3] === 49 || raw[3] === 50);
       let operation;
       try {
         if (binary) operation = ingestMesh(raw, "camera");
