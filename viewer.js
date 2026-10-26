@@ -15,12 +15,59 @@
   let acceptedLegacyParts = new Set(), pendingLegacyParts = new Set(), blockedLegacyParts = new Set();
   let meshFailed = false;
   const diagnostic = new URLSearchParams(location.search).get("diagnostics") === "1";
-  const legacyIntro = $("intro").textContent;
+  const legacyIntro = "Для прежних AR-листов наведите камеру на Hiro. Чёрный квадрат на бумаге — 40 × 40 мм.";
   $("diagnostics").hidden = !diagnostic;
-  const report = { schema: "ARViewer-unified-1", build: "unified-meshopt-20261026-2", userAgent: navigator.userAgent, events: [], scene: null,
+  const report = { schema: "ARViewer-unified-1", build: "unified-scan-ux-20261026-3", userAgent: navigator.userAgent, events: [], scene: null, scan: { accepted: 0, duplicates: 0, frames: 0 },
     acceptance: { source: null, cameraQrRead: false, integrityVerified: false, usdzCreated: false,
       quickLookRequested: false, actualAR: "owner verification required", realRevitProvenance: "owner verification required" } };
   function log(type, detail = {}) { report.events.push({ type, at: new Date().toISOString(), ...detail }); if (report.events.length > 160) report.events.shift(); }
+  let scanBatch = 0, lastNewPart = 0, lastNotice = '', lastNoticeAt = 0, scanStartedAt = 0;
+  let soundEnabled = false, audioContext = null;
+  function clearFeedback(reset = false) {
+    scanBatch++; $("scan-outline").replaceChildren();
+    if (reset) { $("part-progress").replaceChildren(); $("part-progress").hidden = true; $("scan-event").hidden = true; lastNotice = ''; lastNewPart = 0; }
+  }
+  function showProgress(count, have, phase = 'collecting') {
+    const progress = ARScanFeedback.progress(count, have), row = $("part-progress");
+    row.replaceChildren(); row.hidden = false;
+    for (let n = 1; n <= count; n++) {
+      const item = document.createElement('span'), received = progress.have.includes(n);
+      item.className = 'part'; item.dataset.received = String(received); item.setAttribute('role','listitem');
+      item.textContent = received ? n + ' ✓' : String(n); item.setAttribute('aria-label', 'QR ' + n + (received ? ' принят' : ' ожидается')); row.append(item);
+    }
+    row.setAttribute('aria-label', 'Части модели: ' + progress.have.length + ' из ' + count);
+    if (phase === 'collecting') ui.status.textContent = 'Приняты: ' + progress.have.join(', ') + '. Остались: ' + progress.missing.join(', ') + '.';
+    $("scan-guide").hidden = phase !== 'collecting' || !ownedStream || suspended;
+    return progress;
+  }
+  function cue(complete = false) {
+    if (!soundEnabled || !audioContext) return;
+    const now = audioContext.currentTime;
+    for(let i=0;i<(complete ? 2 : 1);i++) { const o=audioContext.createOscillator(),g=audioContext.createGain();o.frequency.value=i ? 1046 : 784;g.gain.setValueAtTime(.045,now+i*.12);g.gain.exponentialRampToValueAtTime(.001,now+i*.12+.09);o.connect(g);g.connect(audioContext.destination);o.start(now+i*.12);o.stop(now+i*.12+.1); }
+  }
+  function notice(text, kind = 'new', tone = kind) {
+    const now = performance.now();
+    if (kind === 'duplicate' && (now - lastNewPart < 1400 || text === lastNotice && now - lastNoticeAt < 2200)) return;
+    if (kind === 'new') lastNewPart = now;
+    lastNotice = text; lastNoticeAt = now; $("scan-event").dataset.kind = tone; $("scan-event").textContent = text; $("scan-event").hidden = false;
+  }
+  function outline(hit, video, frame, kind = 'accepted') {
+    if (hit.points.some(p => !p || !Number.isFinite(p.x) || !Number.isFinite(p.y))) return;
+    const svg = $("scan-outline"), rect = svg.getBoundingClientRect();
+    const points = ARScanFeedback.map(hit.points, frame, video.getBoundingClientRect(), rect, getComputedStyle(video).objectFit);
+    const polygon = document.createElementNS('http://www.w3.org/2000/svg','polygon');
+    svg.setAttribute('viewBox','0 0 ' + rect.width + ' ' + rect.height); polygon.setAttribute('points',points.map(p=>p.x+','+p.y).join(' ')); polygon.dataset.kind=kind;
+    // A short-lived acknowledgement of a decoded frame, never a tracked world pose.
+    svg.append(polygon); setTimeout(()=>polygon.remove(),750);
+  }
+  $("sound").onclick = async () => {
+    try { if (!audioContext) { const Audio = window.AudioContext || window.webkitAudioContext; if (!Audio) throw new Error('Звук недоступен'); audioContext = new Audio(); } await audioContext.resume(); soundEnabled = !soundEnabled; }
+    catch (_) { soundEnabled = false; notice('Звук недоступен. Подтверждение остаётся на экране.','other'); }
+    $("sound").setAttribute('aria-pressed',String(soundEnabled)); $("sound").textContent = soundEnabled ? 'Звук вкл.' : 'Звук выкл.';
+    if (soundEnabled) cue();
+  };
+  $("open-file").onclick = () => $("scene-file").click();
+  window.addEventListener('resize', () => clearFeedback());
   function resetAcceptance(source = null) { report.acceptance = { source, cameraQrRead: false, integrityVerified: false, usdzCreated: false,
     quickLookRequested: false, actualAR: "owner verification required", realRevitProvenance: "owner verification required" }; }
   function dispose(group) { if (!group) return; group.traverse(o => { o.geometry?.dispose(); if (Array.isArray(o.material)) o.material.forEach(m => m.dispose()); else o.material?.dispose(); }); group.removeFromParent(); }
@@ -35,11 +82,12 @@
     blockedLegacyParts = new Set([...acceptedLegacyParts,...pendingLegacyParts,...parts.map(p=>p.payload)]);
     acceptedLegacyParts.clear(); pendingLegacyParts.clear();
     generation++; loading = null; collector.reset(); collecting = false; verifying = false; importing = false; acceptedHash = null; meshFailed = false; parts = [];
-    clearModel(); report.scene = null; resetAcceptance();
+    clearModel(); clearFeedback(true); report.scene = null; resetAcceptance(); report.scan = { accepted: 0, duplicates: 0, frames: 0 };
     history.replaceState(null, "", location.pathname + location.search); $("scene-file").value = ""; $("scene-file").disabled = false;
     ui.start.disabled = false; $("new-sheet").hidden = true; ui.title.textContent = "AR Style"; ui.sheet.textContent = "Новый лист";
     ui.status.textContent = "Прежняя модель сброшена. Наведите камеру на QR нового листа."; log("new-sheet");
-    $("intro").textContent = legacyIntro;
+    $("intro").textContent = "Наведите камеру на QR нового листа. Уже принятый лист повторно не загружается.";
+    if (ownedStream && !suspended) startScanning($("arjs-video"));
   }
 
   if (!window.AFRAME || !AFRAME.systems.arjs) {
@@ -133,7 +181,9 @@
   async function ingestMesh(bytes, source) {
     const packet = qrGeometry.packet(bytes);
     if (source === "html-file" && packet.hash === blockedHash) blockedHash = null; // Explicit file selection may retry the same model.
-    if (packet.hash === blockedHash || packet.hash === acceptedHash || verifying || (importing && source === "camera")) return;
+    if (packet.hash === blockedHash) { notice('QR прежнего листа. Наведите камеру на новый лист.','duplicate','other'); return { state: 'blocked' }; }
+    if (packet.hash === acceptedHash) return { state: 'duplicate' };
+    if (verifying || (importing && source === "camera")) return { state: 'busy' };
     const p = collector.add(bytes);
     if (!collecting) {
       generation++; loading = null; clearModel(); parts = []; collecting = true; blockedHash = null; meshFailed = false;
@@ -142,13 +192,17 @@
       report.scene = null; resetAcceptance();
     }
     $("new-sheet").hidden = false;
-    if (p.duplicate) return;
+    if (p.duplicate) { report.scan.duplicates++; notice('QR ' + (packet.index + 1) + ' уже считан','duplicate'); return { state: 'duplicate' }; }
+    report.scan.accepted++;
+    notice(source === 'camera' ? 'QR ' + (packet.index + 1) + ' принят' : 'HTML · часть ' + (packet.index + 1) + ' принята');
+    if (source === 'camera') cue();
+    showProgress(p.count, Array.from(collector.parts.keys(), i => i + 1), p.complete ? 'verifying' : 'collecting');
     report.acceptance.source = report.acceptance.source && report.acceptance.source !== source ? "mixed-input" : source;
     if (source === "camera") report.acceptance.cameraQrRead = true;
     ui.title.textContent = `Части ${p.received} из ${p.count}`; ui.sheet.textContent = "Геометрия Exporto";
-    ui.status.textContent = p.complete ? "Проверяю SHA-256 и восстанавливаю модель…" : "Считайте оставшиеся QR этого листа";
-    log("qrl-part", { version: packet.version, hash: p.hash, index: packet.index, count: p.count, source });
-    if (!p.complete) return;
+    if (p.complete) ui.status.textContent = "Все части получены. Проверяю целостность и восстанавливаю модель…";
+    log("qrl-part", { version: packet.version, hash: p.hash, index: packet.index, count: p.count, source, elapsedMs: Math.round(performance.now() - scanStartedAt) });
+    if (!p.complete) return { state: "accepted" };
     const ticket = generation; verifying = true; let group = null, blob = null;
     try {
       const decoded = await qrGeometry.restore(collector.join()); if (ticket !== generation) return;
@@ -169,17 +223,22 @@
       ui.status.textContent = quickLook ? "Модель готова. Откройте Quick Look → AR и разместите на поверхности. Привязка к чертежу не задана." : "Модель восстановлена. Для AR Quick Look откройте этот просмотрщик в Safari на iPhone.";
       $("intro").textContent = "Модель восстановлена из QR. Quick Look использует поверхность; положение и масштаб относительно чертежа этим экспортом не заданы.";
       $("scene-info").textContent = `${decoded.meshes.length} мешей · ${decoded.triangles} треугольников · ${decoded.extent.map(x => x.toFixed(3)).join(" × ")} м. ${decoded.excluded.join("; ")}`;
+      showProgress(decoded.qrCount, Array.from({length:decoded.qrCount},(_,i)=>i+1), 'ready');
+      notice('Все QR проверены · модель готова'); if (source === 'camera') cue(true);
+      clearInterval(scanTimer); scanTimer = 0; $("scan-guide").hidden = true;
       ui.reticle.hidden = true; log("mesh-ready", { hash: decoded.sha256, triangles: decoded.triangles });
     } catch (error) {
       dispose(group); if (ticket !== generation) return;
       meshFailed = true; clearModel(); ui.status.textContent = error.message + ". Нажмите «Новый лист» для повтора."; log("mesh-error", { message: error.message });
     } finally { if (ticket === generation) verifying = false; }
+    return { state: meshFailed ? "error" : "accepted" };
   }
 
   async function load(payload, announce, source = "url") {
     let data = ARCubeData.parse(payload);
     if (data.payload === blockedLegacy || blockedLegacyParts.has(data.payload) || acceptedLegacyParts.has(data.payload) || pendingLegacyParts.has(data.payload) || importing) return;
     let receivedParts = [];
+    const partInfo = data.kind === "part" ? { number: data.part, count: data.of } : null;
     if (data.kind !== "part") { parts = []; pendingLegacyParts.clear(); }
     // A valid legacy QR switches the SAME viewer back to its legacy model path.
     if (collecting || model?.data.kind === "mesh" || verifying) {
@@ -191,7 +250,10 @@
       if (parts.length && parts[0].id !== data.id) parts = [];
       if (!parts.length) { generation++; loading = null; clearModel(); acceptedLegacyParts.clear(); pendingLegacyParts.clear(); report.scene = null; resetAcceptance(); }
       $("new-sheet").hidden = false;
-      if (!parts.some(p => p.part === data.part)) parts.push(data);
+      if (parts.some(p => p.part === data.part)) { notice('QR ' + data.part + ' уже считан','duplicate'); return; }
+      parts.push(data);
+      showProgress(data.of, parts.map(p=>p.part));
+      notice('QR ' + data.part + ' принят');
       const joined = ARCubeData.join(parts);
       if (!joined) {
         const have = parts.map(p => p.part).sort((a, b) => a - b);
@@ -228,6 +290,8 @@
     const rgb = data.color || (data.kind === "walls" ? DEFAULT_WALL : DEFAULT_CUBE);
     ui.dot.style.background = rgbCss(rgb);
     ui.dot.hidden = false;
+    if (partInfo) showProgress(partInfo.count, Array.from({length:partInfo.count},(_,i)=>i+1), 'ready');
+    else { $("part-progress").hidden = true; $("scan-event").hidden = true; }
     ui.title.textContent = ARCubeData.title(data);
     ui.sheet.textContent = data.sheet ? "Лист " + data.sheet : "Модель из QR";
     $("intro").textContent = legacyIntro;
@@ -291,7 +355,7 @@
   let cameraEpoch = 0, ownedStream = null, opening = false, videoSourceURL = null;
   const wiredVideos = new WeakSet();
   function stopCamera() {
-    cameraEpoch++; opening = false; clearInterval(scanTimer); scanTimer = 0;
+    cameraEpoch++; clearFeedback(); opening = false; clearInterval(scanTimer); scanTimer = 0;
     ownedStream?.getTracks().forEach(track => track.stop()); ownedStream = null;
     document.querySelectorAll("video").forEach(video => {
       if (video.srcObject && video.srcObject.getTracks) video.srcObject.getTracks().forEach(track => track.stop());
@@ -301,29 +365,56 @@
 
   // QR is read from the same video AR.js tracks: no second camera, no leaving the AR screen.
   function startScanning(video) {
-    if (typeof jsQR !== "function") return;
+    if (typeof jsQR !== "function" || !video) return;
     const canvas = document.createElement("canvas"), ctx = canvas.getContext("2d", { willReadFrequently: true });
-    let busy = false;
-    clearInterval(scanTimer);
-    scanTimer = setInterval(() => {
-      if (busy || suspended || importing || document.hidden || !video.videoWidth || !ctx) return;
-      const factor = Math.min(1, 1280 / video.videoWidth);
-      canvas.width = Math.round(video.videoWidth * factor);
-      canvas.height = Math.round(video.videoHeight * factor);
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const qr = jsQR(image.data, image.width, image.height, { inversionAttempts: "dontInvert" });
-      if (!qr) return;
-      const raw = Uint8Array.from(qr.binaryData);
-      const binary = raw.length >= 4 && raw[0] === 81 && raw[1] === 82 && raw[2] === 76 && (raw[3] === 49 || raw[3] === 50);
-      let operation;
+    let busy = false, region = 1; clearInterval(scanTimer);
+    scanTimer = setInterval(async () => {
+      if (busy || suspended || importing || verifying || model?.data.kind === 'mesh' || document.hidden || !video.videoWidth || !ctx) return;
+      busy = true; const batch = scanBatch, epoch = cameraEpoch;
       try {
-        if (binary) operation = ingestMesh(raw, "camera");
-        else { const data = ARCubeData.fromUrl(qr.data); operation = load(data.payload, true, "camera"); }
-      } catch (error) { toast(error.message); return; }
-      busy = true;
-      Promise.resolve(operation).catch(error => { toast(error.message); log("qr-error", { message: error.message }); }).finally(() => { busy = false; });
-    }, 280);
+        const factor = Math.min(1, 1280 / video.videoWidth);
+        canvas.width = Math.round(video.videoWidth * factor); canvas.height = Math.round(video.videoHeight * factor);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const image = ctx.getImageData(0, 0, canvas.width, canvas.height); report.scan.frames++;
+        const frameAt = performance.now();
+        const views = [0, region, region === 11 ? 1 : region + 1]; region = ((region + 1) % 11) + 1;
+        const hits = (function* () { for (const view of views) yield* ARScanFeedback.scan(image, jsQR, 1, view); })();
+        while (batch === scanBatch && epoch === cameraEpoch && !suspended && !document.hidden) {
+          const next = hits.next(); if (next.done) break;
+          const hit = next.value;
+          if (!hit.qr) { await new Promise(resolve => setTimeout(resolve,0)); continue; }
+          const qr=hit.qr, raw=Uint8Array.from(qr.binaryData);
+          report.scan.decoded = (report.scan.decoded || 0) + 1;
+          const binary=raw.length>=4 && raw[0]===81 && raw[1]===82 && raw[2]===76 && (raw[3]===49 || raw[3]===50);
+          try {
+            if (binary) {
+              const result = await ingestMesh(raw, 'camera');
+              if (batch !== scanBatch || epoch !== cameraEpoch || suspended) break;
+              if (performance.now() - frameAt < 900) outline(hit, video, image, result?.state === 'blocked' || result?.state === 'error' ? 'other' : 'accepted');
+              if (model?.data.kind === 'mesh') break;
+            } else if (qr.data === 'https://mookcumka.github.io/ar-viewer/') {
+              if (!collecting && !model) notice('Это QR открытия просмотрщика. Наведите камеру на QR модели.','duplicate','other');
+            } else {
+              const data = ARCubeData.fromUrl(qr.data);
+              const blocked = data.payload === blockedLegacy || blockedLegacyParts.has(data.payload);
+              const duplicate = acceptedLegacyParts.has(data.payload) || pendingLegacyParts.has(data.payload) || model?.data.payload === data.payload || parts.some(p=>p.payload===data.payload);
+              await load(data.payload, true, 'camera');
+              if (batch !== scanBatch || epoch !== cameraEpoch || suspended) break;
+              if (duplicate) notice(data.kind === 'part' ? 'QR ' + data.part + ' уже считан' : 'QR уже считан','duplicate');
+              if (blocked) notice('QR прежнего листа. Наведите камеру на новый лист.','duplicate','other');
+              if (performance.now() - frameAt < 900) outline(hit,video,image,blocked ? 'other' : 'accepted');
+            }
+          } catch (error) { report.scan.rejected = (report.scan.rejected || 0) + 1; notice(error.message,'duplicate','other'); }
+          // Keep controls responsive; pausing/resetting cancels the remaining decoded-frame work.
+          await new Promise(resolve => setTimeout(resolve,0));
+        }
+        if (batch === scanBatch && !model && !verifying && performance.now() - lastNoticeAt > 4500) {
+          $("scan-guide").hidden = false;
+          $("scan-guide").textContent = 'Если QR не читается: направьте рамку на один непринятый код целиком. Если он размыт вблизи — немного отодвиньте телефон.';
+        }
+      } catch (error) { log('scan-error',{message:error.message}); }
+      finally { busy = false; }
+    },280);
   }
 
   async function startCamera() {
@@ -337,7 +428,10 @@
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 960 } } }); }
     catch (error) { if (ticket === cameraEpoch) { pauseCamera(); ui.status.textContent = "Не удалось открыть камеру. Разрешите её в Safari и повторите."; } return; }
     if (ticket !== cameraEpoch || document.hidden) { stream.getTracks().forEach(t => t.stop()); return; }
-    ownedStream = stream; opening = false; log("camera-start");
+    ownedStream = stream; opening = false; scanStartedAt = performance.now();
+    const settings = stream.getVideoTracks()[0]?.getSettings() || {};
+    log("camera-start",{width:settings.width,height:settings.height,frameRate:settings.frameRate,facingMode:settings.facingMode});
+    $("scan-guide").hidden = false;
     if (!scene) {
     scene = document.createElement("a-scene");
     videoSourceURL = URL.createObjectURL(new Blob([], { type: "video/mp4" }));
@@ -401,12 +495,12 @@
 
   ui.start.onclick = startCamera;
   function pauseCamera() {
-    if (verifying) { generation++; verifying = false; collecting = false; collector.reset(); log("verification-cancelled"); }
+    if (verifying) { generation++; verifying = false; collecting = false; collector.reset(); clearFeedback(true); log("verification-cancelled"); }
     suspended = true; stopCamera();
     const source = scene?.systems.arjs?._arSession?.arSource;
     if (source?.domElement) { source.ready = false; source.domElement.pause(); source.domElement.srcObject = null; source.domElement.style.display = "none"; }
     scene?.pause(); if (scene) scene.style.display = "none";
-    ui.body.classList.remove("live"); ui.start.hidden = false; ui.stop.hidden = true; ui.reticle.hidden = true;
+    ui.body.classList.remove("live"); ui.start.hidden = false; ui.stop.hidden = true; ui.reticle.hidden = true; $("scan-guide").hidden = true;
     ui.status.textContent = "Камера остановлена. Можно продолжить без перезагрузки.";
   }
   ui.stop.onclick = pauseCamera;

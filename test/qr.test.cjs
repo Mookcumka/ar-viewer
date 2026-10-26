@@ -68,11 +68,11 @@ function worker(keys) {
 test("cache cleanup keeps other apps and another AR installation", async () => {
   const prefix = "ar-style-cube-" + encodeURIComponent("https://example.test/ar/") + "-";
   const other = "ar-style-cube-" + encodeURIComponent("https://example.test/other/") + "-v2";
-  const w = worker(["unrelated-cache", prefix + "v3", prefix + "v7", other]);
+  const w = worker(["unrelated-cache", prefix + "v3", prefix + "v7", prefix + "v8", other]);
   let pending;
   w.handlers.activate({ waitUntil: p => pending = p });
   await pending;
-  assert.deepEqual(w.deleted, [prefix + "v3", prefix + "v7"]);
+  assert.deepEqual(w.deleted, [prefix + "v3", prefix + "v7", prefix + "v8"]);
 });
 test("worker serves cached deep link offline and ignores unrelated URLs", async () => {
   const w = worker([]);
@@ -158,3 +158,5 @@ test("AR5 rejects mixed models, corrupted parts and bad numbering", () => {
     assert.throws(() => data.parse(bad), bad);
 });
 
+
+require('./scan-feedback.test.cjs');
