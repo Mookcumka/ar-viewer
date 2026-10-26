@@ -43,7 +43,7 @@ with path.open('wb') as out:
             for x in range(n):
                 if qr.isDark(y,x):image.paste(0,((x+4)*3,(y+4)*3,(x+5)*3,(y+5)*3))
         frame=Image.new('L',(640,480),255);frame.paste(image,((640-image.width)//2,(480-image.height)//2))
-        for _ in range(30):out.write(b'FRAME\n'+frame.tobytes()+chroma)
+        for _ in range(80):out.write(b'FRAME\n'+frame.tobytes()+chroma)
 print(path)
 
 # Existing Hiro marker, not model geometry. Supply its image as the second argument.
@@ -69,3 +69,31 @@ with (target/'meshopt.y4m').open('wb') as out:
         frame=Image.new('L',(640,480),255);frame.paste(image,((640-image.width)//2,(480-image.height)//2))
         for _ in range(50):out.write(b'FRAME\n'+frame.tobytes()+chroma)
 print(target/'meshopt.y4m')
+
+# A single unchanging sheet: launch + SIX data QR, never a laptop carousel.
+def code_image(data, module=3):
+    qr=qrencoder.QRCode(24,qrencoder.QRErrorCorrectLevel.M);qr.addData(qrencoder.QR8bitByte(data));qr.make();n=qr.getModuleCount()
+    image=Image.new('L',((n+8)*module,(n+8)*module),255)
+    for y in range(n):
+        for x in range(n):
+            if qr.isDark(y,x):image.paste(0,((x+4)*module,(y+4)*module,(x+5)*module,(y+5)*module))
+    return image
+v=next(v for v in vectors if len(v['packets'])==6)
+full=Image.new('L',(1280,960),255)
+for pos,part in enumerate([2,0,5,3,1,4]):full.paste(code_image(bytes(v['packets'][part])),(80+(pos%3)*400,210+(pos//3)*380))
+full.paste(code_image(b'https://mookcumka.github.io/ar-viewer/',1),(10,10));full.save(target/'sheet-seven.png')
+full.rotate(7,expand=True,fillcolor=255).save(target/'sheet-seven-tilted.png')
+full.crop((60,190,463,593)).resize((806,806),Image.Resampling.NEAREST).rotate(7,expand=True,fillcolor=255).save(target/'sheet-approach-tilted.png')
+first=Image.new('L',(1280,960),255);first.paste(code_image(bytes(v['packets'][2])),(480,210))
+with (target/'sheet-seven.y4m').open('wb') as out:
+    out.write(b'YUV4MPEG2 W1280 H960 F10:1 Ip A1:1 C420jpeg\n')
+    # The CAMERA approaches different regions of this same fixed sheet; codes are never replaced.
+    approached=[]
+    for pos in range(6):
+        x,y=80+(pos%3)*400,210+(pos//3)*380
+        close=full.crop((x-14,y-14,x+377,y+377)).resize((782,782),Image.Resampling.NEAREST)
+        frame=Image.new('L',(1280,960),255);frame.paste(close,(249,89));approached.append((frame,3))
+    for frame,seconds in [(first,10),(full,6)]+approached:
+        chroma=bytes([128])*(1280*960//2)
+        for _ in range(seconds*10):out.write(b'FRAME\n'+frame.tobytes()+chroma)
+print(target/'sheet-seven.y4m')

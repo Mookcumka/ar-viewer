@@ -12,6 +12,7 @@ let legacyChild=false;
 const oldChildWorker=`const P='exporto-qr-sheet-'+encodeURIComponent(self.registration.scope)+'-';const C=P+'v1';self.addEventListener('install',e=>e.waitUntil((async()=>{const c=await caches.open(C);await c.addAll(['./','./index.html']);await self.skipWaiting();})()));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>{if(e.request.mode==='navigate')e.respondWith(caches.open(C).then(c=>c.match(new URL('./index.html',self.registration.scope).href)));});`;
 const server=http.createServer((req,res)=>{
  const url=new URL(req.url,'http://localhost');
+ if(['/sheet-seven.png','/sheet-seven-tilted.png','/sheet-approach-tilted.png'].includes(url.pathname)){res.setHeader('Content-Type','image/png');res.end(fs.readFileSync(path.join(out,url.pathname.slice(1))));return;}
  if(url.pathname==='/__setup.html'){res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Migration harness</title>');return;}
  if(url.pathname.startsWith('/compare/qr-sheet-1/')){
   if(legacyChild){res.setHeader('Content-Type',url.pathname.endsWith('sw.js')?'application/javascript':'text/html');res.end(url.pathname.endsWith('sw.js')?oldChildWorker:'<!doctype html><title>Old isolated viewer</title><p>Old cached interface</p>');return;}
@@ -28,6 +29,7 @@ const results={},errors=[],requests=[];
  const launch=extra=>chromium.launch({headless:true,...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{}),args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream','--use-angle=swiftshader','--enable-unsafe-swiftshader',...(extra||[])]});
  const browser=await launch();
  try{
+  if (!process.env.UX_ONLY) {
   const ctx=await browser.newContext({viewport:{width:393,height:852},permissions:['camera']}),page=await ctx.newPage();
   page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>requests.push(r.url()));
   await page.addInitScript(()=>{window.calls=0;window.streams=[];const get=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);navigator.mediaDevices.getUserMedia=async(...args)=>{window.calls++;const s=await get(...args);window.streams.push(s);return s;};const supports=DOMTokenList.prototype.supports;DOMTokenList.prototype.supports=function(t){return t==='ar'||supports.call(this,t);};});
@@ -47,7 +49,7 @@ const results={},errors=[],requests=[];
   await page.locator('#scene-file').setInputFiles({name:'scene.html',mimeType:'text/html',buffer:Buffer.from(sheet(vectors[0]))});
   await page.waitForFunction(()=>ARViewer.model()?.data.kind==='mesh');
   assert.equal(await page.evaluate(()=>window.UNTRUSTED_EXECUTED),undefined);assert.equal(await page.evaluate(()=>ARViewer.model().holder),null);
-  assert.equal(await page.locator('#look').isVisible(),true);assert.match(await page.locator('#sheet').innerText(),/SHA-256 OK/);
+  assert.equal(await page.locator('#look').isVisible(),true);assert.deepEqual(await page.locator('#look').evaluate(a=>[a.children.length,a.firstElementChild.tagName]),[1,'IMG']);assert.match(await page.locator('#sheet').innerText(),/SHA-256 OK/);
   const blob=await page.locator('#look').getAttribute('href');
   assert.equal(await page.evaluate(async u=>new DataView(await(await fetch(u)).arrayBuffer()).getUint32(0,true),blob),0x04034b50);
   await setHash(cube);await page.waitForFunction(()=>ARViewer.model()?.data.kind==='cube');
@@ -91,7 +93,10 @@ const results={},errors=[],requests=[];
    const c=await cameraBrowser.newContext({permissions:['camera']}),p=await c.newPage();p.on('pageerror',e=>errors.push(e.message));
    await p.addInitScript(()=>{window.calls=0;window.streams=[];const get=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);navigator.mediaDevices.getUserMedia=async(...a)=>{calls++;const s=await get(...a);streams.push(s);return s;};});
    await p.goto(entry);await p.locator('#diagnostics > summary').click();await p.locator('#start').click();
-   await p.waitForFunction(()=>ARViewer.model()?.data.kind==='mesh',null,{timeout:35000});
+   try { await p.waitForFunction(()=>ARViewer.model()?.data.kind==='mesh',null,{timeout:35000}); } catch(error) {
+    console.log('camera failure',await p.evaluate(()=>({title:document.querySelector('#title').textContent,status:document.querySelector('#status').textContent,event:document.querySelector('#scan-event').textContent})));
+    const [d]=await Promise.all([p.waitForEvent('download'),p.locator('#report').click()]);await d.saveAs(path.join(out,'camera-failure-report.json'));console.log(fs.readFileSync(path.join(out,'camera-failure-report.json'),'utf8'));await p.screenshot({path:path.join(out,'camera-failure.png')});throw error;
+   }
    assert.match(await p.locator('#sheet').innerText(),/6\/6 · SHA-256 OK/);assert.equal(await p.evaluate(()=>calls),1);assert.equal(await p.locator('a-scene').count(),1);assert.equal(await p.locator('video').count(),1);
    await p.waitForFunction(()=>document.querySelector('a-scene').systems.arjs._arSession.arContext.arController!=null);
    await p.evaluate(()=>{window.controller=document.querySelector('a-scene').systems.arjs._arSession.arContext.arController;window.sameDocument=true;});
@@ -115,6 +120,7 @@ const results={},errors=[],requests=[];
    const ctx=await mixedBrowser.newContext({permissions:['camera']}),p=await ctx.newPage();p.on('pageerror',e=>errors.push(e.message));
    await p.goto(entry);await p.locator('#start').click();await p.waitForFunction(()=>ARViewer.model()?.data.kind==='cube',null,{timeout:20000});
    await p.waitForFunction(()=>ARViewer.model()?.data.kind==='mesh',null,{timeout:20000});
+   await p.locator('#new-sheet').click();
    await p.waitForFunction(()=>ARViewer.model()?.data.kind==='cube',null,{timeout:20000});
    assert.equal(await p.locator('a-scene').count(),1);assert.equal(await p.locator('video').count(),1);results.same_camera_legacy_binary_legacy_reread=true;await ctx.close();
   }finally{await mixedBrowser.close();}
@@ -139,6 +145,28 @@ const results={},errors=[],requests=[];
    await p.waitForFunction(()=>ARViewer.model()?.data.codec==='meshopt-0.23+gzip');
    results.qrl2_meshopt_same_camera_and_cached_decoder_html_restore=true;await ctx.close();
   }finally{await meshBrowser.close();}
+  }
+  // All seven QR on ONE stationary sheet, with a duplicate before the remaining parts.
+  const sevenBrowser=await launch([`--use-file-for-fake-video-capture=${out}/sheet-seven.y4m`]);
+  try{
+   const ctx=await sevenBrowser.newContext({viewport:{width:393,height:852},permissions:['camera']}),p=await ctx.newPage();p.on('pageerror',e=>errors.push(e.message));
+   await p.addInitScript(()=>{const supports=DOMTokenList.prototype.supports;DOMTokenList.prototype.supports=function(t){return t==='ar'||supports.call(this,t);};document.addEventListener('DOMContentLoaded',()=>{const original=ARScanFeedback.scan;let frozen=false;ARScanFeedback.scan=function*(...args){for(const hit of original(...args)){if(!frozen){try{const packet=ExportoQr.packet(Uint8Array.from(hit.qr.binaryData));window.firstReadIndex=packet.index+1;document.querySelector('video').pause();frozen=true;}catch(_){}}yield hit;}};});});
+   await p.goto(base+'/index.html');assert.equal(await p.locator('#open-file').isVisible(),true);assert.equal(await p.locator('#diagnostics').isVisible(),false);
+   await p.locator('#start').click();await p.waitForFunction(()=>window.firstReadIndex && document.querySelectorAll('.part')[firstReadIndex-1]?.dataset.received==='true',null,{timeout:20000});
+   assert.equal(await p.locator('.part').count(),6);const missing=await p.locator('.part[data-received="false"]').allTextContents();assert.ok(missing.length>0);assert.ok((await p.locator('#status').innerText()).includes(missing.join(', ')));
+   await p.evaluate(()=>document.querySelector('#arjs-video').pause());
+   try { await p.waitForFunction(()=>document.querySelector('#scan-event').textContent.includes('уже считан'),null,{timeout:10000}); } catch(error){console.log(await p.evaluate(()=>({status:document.querySelector('#status').textContent,event:document.querySelector('#scan-event').textContent,video:document.querySelector('video')?.paused,model:ARViewer.model()?.data.kind})));const [d]=await Promise.all([p.waitForEvent('download'),p.evaluate(()=>document.querySelector('#report').click())]);await d.saveAs(path.join(out,'feedback-failure.json'));console.log(fs.readFileSync(path.join(out,'feedback-failure.json'),'utf8'));await p.screenshot({path:path.join(out,'feedback-failure.png')});throw error;}
+   await p.waitForFunction(()=>document.querySelector('#scan-outline polygon')!==null);await p.screenshot({path:path.join(out,'scan-partial-portrait.png')});await p.evaluate(()=>document.querySelector('#arjs-video').play());
+   try { await p.waitForFunction(()=>ARViewer.model()?.data.kind==='mesh',null,{timeout:40000}); } catch(error){console.log(await p.evaluate(()=>({status:document.querySelector('#status').textContent,event:document.querySelector('#scan-event').textContent,video:document.querySelector('video')?.paused})));await p.screenshot({path:path.join(out,'seven-failure.png')});const[d]=await Promise.all([p.waitForEvent('download'),p.evaluate(()=>document.querySelector('#report').click())]);await d.saveAs(path.join(out,'seven-failure.json'));console.log(fs.readFileSync(path.join(out,'seven-failure.json'),'utf8'));throw error;}
+   assert.equal(await p.locator('.part[data-received="true"]').count(),6);assert.equal(await p.locator('video').count(),1);assert.equal(await p.locator('a-scene').count(),1);
+   assert.ok((await p.locator('#scan-event').innerText()).includes('модель готова'));await p.screenshot({path:path.join(out,'scan-ready-portrait.png')});
+   // Actual jsQR on a tilted sheet validates polygon masking without erasing neighbours.
+   const optical=await p.evaluate(async()=>{const image=await new Promise((resolve,reject)=>{const im=new Image();im.onload=()=>resolve(im);im.onerror=reject;im.src='/sheet-approach-tilted.png';});const c=document.createElement('canvas');c.width=image.width;c.height=image.height;const ctx=c.getContext('2d');ctx.drawImage(image,0,0);return Array.from(ARScanFeedback.scan(ctx.getImageData(0,0,c.width,c.height),jsQR)).filter(h=>h.qr).map(h=>{try{return ExportoQr.packet(Uint8Array.from(h.qr.binaryData)).index+1;}catch(_){return 'launch';}});});
+   assert.ok(optical.includes(3),'the same fixed sheet remains readable when the camera approaches a tilted QR');
+   await p.locator('#new-sheet').click();assert.equal(await p.locator('#part-progress').isVisible(),false);assert.equal(await p.locator('#scan-outline polygon').count(),0);
+   await p.locator('#stop').click();await p.setViewportSize({width:852,height:393});await p.screenshot({path:path.join(out,'scan-landscape.png')});
+   results.same_sheet_camera_approach_exact_progress_duplicates_and_tilt=true;await ctx.close();
+  }finally{await sevenBrowser.close();}
   assert.deepEqual(errors,[]);assert.deepEqual(requests.filter(u=>!u.startsWith(base)&&!u.startsWith('blob:')),[]);results.no_page_errors_or_external_requests=true;
   fs.writeFileSync(path.join(out,'results.json'),JSON.stringify(results,null,2));console.log(JSON.stringify(results,null,2));
  }finally{await browser.close();}
