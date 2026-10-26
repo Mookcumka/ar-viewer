@@ -57,12 +57,14 @@ function worker(keys) {
   const cache = { addAll: async () => {}, match: async url => responses.get(url) };
   let fetches = 0;
   const scope = "https://example.test/ar/";
-  vm.runInNewContext(read("sw.js"), {
+  const context = vm.createContext({
     URL, Set, self: { registration: { scope }, addEventListener: (name, cb) => handlers[name] = cb,
       clients: { claim: async () => {} }, skipWaiting: async () => {} },
     caches: { keys: async () => keys, delete: async key => deleted.push(key), open: async () => cache },
     fetch: async () => { fetches++; return "network"; }
   });
+  context.importScripts = file => vm.runInContext(read(file.replace("./", "")), context);
+  vm.runInContext(read("sw.js"), context);
   return { handlers, deleted, responses, scope, fetches: () => fetches };
 }
 test("cache cleanup keeps other apps and another AR installation", async () => {
@@ -160,3 +162,5 @@ test("AR5 rejects mixed models, corrupted parts and bad numbering", () => {
 
 
 require('./scan-feedback.test.cjs');
+
+require("./version-webxr.test.cjs");

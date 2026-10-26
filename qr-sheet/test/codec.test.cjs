@@ -108,9 +108,11 @@ test('HTML fallback extracts bytes only; no DOM, script, URL navigation or execu
 function worker(keys = []) {
   const handlers = {}, deleted = [], entries = new Map(), scope = 'https://example.test/isolated/';
   const cache = { addAll: async urls => urls.forEach(x => entries.set(new URL(x,scope).href, 'cached')), match: async url => entries.get(url) };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../../sw.js'), 'utf8'), { URL, self: {
+  const context = vm.createContext({ URL, self: {
     registration: { scope }, addEventListener: (n, cb) => handlers[n] = cb, skipWaiting: async () => {}, clients: { claim: async () => {} }
   }, caches: { open: async () => cache, keys: async () => keys, delete: async k => deleted.push(k) }, fetch: async () => 'network' });
+  context.importScripts = file => vm.runInContext(fs.readFileSync(path.join(__dirname,"../..",file),"utf8"),context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname,"../../sw.js"),"utf8"),context);
   return { handlers, deleted, scope, entries };
 }
 test('isolated offline cache cannot delete other installations or store model/query URLs', async () => {
