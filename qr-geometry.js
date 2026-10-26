@@ -1,4 +1,4 @@
-/* Exporto PR71 QRL1/CBX1 browser adapter. Wire format unchanged. No models or network I/O. */
+/* Versioned Exporto QRL1/CBX1 and QRL2/CBX2 browser adapter. No models or network I/O. */
 (function (root) {
   "use strict";
   const LIMITS = Object.freeze({ scene: 5142, packet: 905, chunk: 857, raw: 32 * 1024 * 1024,
@@ -16,14 +16,15 @@
   function magic(b, text, at = 0) { return [...text].every((x, i) => b[at + i] === x.charCodeAt(0)); }
   function packet(input) {
     const b = bytes(input);
-    if (b.length < 49 || b.length > LIMITS.packet || !magic(b, "QRL1")) fail("Это не пакет Exporto QRL1");
+    if (b.length < 49 || b.length > LIMITS.packet || !(magic(b, "QRL1") || magic(b, "QRL2"))) fail("Это не пакет Exporto QRL1/QRL2");
     const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    const version = magic(b, "QRL2") ? 2 : 1;
     const total = v.getUint32(36, true), index = v.getUint16(40, true), count = v.getUint16(42, true);
     const length = v.getUint32(44, true), hash = hex(b.slice(4, 36));
-    if (total < 1 || total > LIMITS.scene || ![1,3,6].includes(count) || index >= count ||
+    if (total < 1 || total > LIMITS.scene || (version === 1 ? ![1,3,6].includes(count) : count < 1 || count > 6) || index >= count ||
         length !== b.length - 48 || length < 1 || length > LIMITS.chunk || total > count * LIMITS.chunk || total < count)
-      fail("Неверные границы пакета QRL1");
-    return { hash, total, index, count, body: b.slice(48), key: `${hash}:${total}:${count}` };
+      fail("Неверные границы пакета QRL" + version);
+    return { version, hash, total, index, count, body: b.slice(48), key: `${version}:${hash}:${total}:${count}` };
   }
   class Collector {
     constructor() { this.reset(); }
@@ -46,7 +47,7 @@
       const joined = new Uint8Array(p.total);
       let at = 0;
       for (let i = 0; i < p.count; i++) { const b = this.parts.get(i); if (!b || at + b.length > joined.length) fail("Неверная длина частей"); joined.set(b, at); at += b.length; }
-      if (at !== p.total) fail("Длина сцены не совпадает с QRL1");
+      if (at !== p.total) fail("Длина сцены не совпадает с QR");
       return { compressed: joined, hash: p.hash, count: p.count };
     }
   }
@@ -113,12 +114,51 @@
     return { meshes, vertices, triangles: indices / 3, bounds, extent, originMeters: meta.originMeters,
       scale: meta.scale, units: "m", up: "Y", excluded: meta.excluded.slice(), rawBytes: b.length };
   }
+  async function expandMeshopt(b) {
+    const decoder = root.MeshoptDecoder;
+    if (!decoder?.supported) fail("Обновите AR Viewer: отсутствует декодер meshoptimizer. Старый HTML/QR по-прежнему поддерживается");
+    if (b.length < 8 || b.length > LIMITS.raw) fail("Неверный размер CBX2");
+    const size = new DataView(b.buffer,b.byteOffset,b.byteLength).getUint32(4,true);
+    if (size < 2 || size > LIMITS.metadata || 8 + size > b.length) fail("Неверный размер метаданных CBX2");
+    const meta = JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(b.subarray(8,8+size)));
+    if (!meta || meta.profile !== "Exporto-AR-meshopt-2" || meta.codec !== "meshopt-0.23" || meta.bits !== 16 || meta.units !== "m" || meta.up !== "Y") fail("Неподдерживаемый профиль CBX2");
+    if (!Array.isArray(meta.meshes) || !meta.meshes.length || meta.meshes.length > LIMITS.meshes) fail("Неверный список мешей CBX2");
+    let end=0,canonical=0,vertices=0,indices=0;
+    for(const m of meta.meshes) {
+      if(!m || !Number.isInteger(m.vertices) || m.vertices<1 || m.vertices>LIMITS.vertices || !Number.isInteger(m.indices) || m.indices<3 || m.indices%3 || m.indices>LIMITS.indices || ![2,4].includes(m.width) || m.offset!==end || !Number.isInteger(m.vertexBytes) || m.vertexBytes<1 || !Number.isInteger(m.indexBytes) || m.indexBytes<1) fail("Неверная разметка meshoptimizer");
+      end+=m.vertexBytes+m.indexBytes;canonical+=m.vertices*6+m.indices*m.width;vertices+=m.vertices;indices+=m.indices;
+      if(end>b.length-8-size || canonical>LIMITS.raw || vertices>LIMITS.vertices || indices>LIMITS.indices) fail("CBX2 превышает лимиты");
+    }
+    if(end!==b.length-8-size || indices/3>LIMITS.renderTriangles) fail("CBX2 обрезан или превышает предел браузерного USDZ; геометрия не обрезается");
+    // Reuse the full CBX1 semantic/layout validator BEFORE native/WASM allocations.
+    const layout=structuredClone(meta);layout.profile="Exporto-AR-experimental-1";delete layout.codec;
+    let offset=0;for(const m of layout.meshes){m.offset=offset;offset+=m.vertices*6+m.indices*m.width;delete m.vertexBytes;delete m.indexBytes;}
+    const json=new TextEncoder().encode(JSON.stringify(layout));
+    if(8+json.length+canonical>LIMITS.raw) fail("Распакованный CBX2 превышает 32 МиБ");
+    // Validate semantic metadata with the same checks as CBX1 (zero indices are within bounds).
+    const target=new Uint8Array(8+json.length+canonical);target.set([67,66,88,49]);new DataView(target.buffer).setUint32(4,json.length,true);target.set(json,8);
+    decodeRaw(target);
+    await decoder.ready;
+    let at=8+json.length;
+    for(const m of meta.meshes){
+      const start=8+size+m.offset,positions=new Uint8Array(m.vertices*8),faces=new Uint8Array(m.indices*m.width);
+      try { decoder.decodeVertexBuffer(positions,m.vertices,8,b.subarray(start,start+m.vertexBytes));decoder.decodeIndexBuffer(faces,m.indices,m.width,b.subarray(start+m.vertexBytes,start+m.vertexBytes+m.indexBytes)); }
+      catch { fail("Повреждён поток meshoptimizer; модель не создана"); }
+      for(let i=0;i<m.vertices;i++)target.set(positions.subarray(i*8,i*8+6),at+i*6);
+      at+=m.vertices*6;target.set(faces,at);at+=faces.length;
+    }
+    return target;
+  }
   async function restore(joined) {
+    const started = root.performance?.now() ?? Date.now();
     if (!root.crypto?.subtle) fail("Для SHA-256 нужен защищённый контекст HTTPS");
     const hash = hex(new Uint8Array(await root.crypto.subtle.digest("SHA-256", joined.compressed)));
     if (hash !== joined.hash) fail("SHA-256 не совпадает. Модель не создана");
-    const scene = decodeRaw(await inflate(joined.compressed));
-    return Object.assign(scene, { sha256: hash, compressedBytes: joined.compressed.length, qrCount: joined.count });
+    const raw = await inflate(joined.compressed);
+    const meshopt = magic(raw,"CBX2");
+    const scene = decodeRaw(meshopt ? await expandMeshopt(raw) : raw);
+    scene.codec = meshopt ? "meshopt-0.23+gzip" : "gzip-cbx1"; scene.rawBytes = raw.length;
+    return Object.assign(scene, { sha256: hash, compressedBytes: joined.compressed.length, qrCount: joined.count, decodeMilliseconds: (root.performance?.now() ?? Date.now()) - started });
   }
   function htmlPackets(text) {
     // Treat a user HTML as data only. Never parse into a live DOM, evaluate it, or follow its URLs.

@@ -128,6 +128,17 @@ const results={},errors=[],requests=[];
    await p.locator('#start').click();await p.waitForFunction(()=>document.querySelector('[ar-follow]')?.object3D.visible===true,null,{timeout:25000});
    assert.equal(await p.evaluate(()=>ARViewer.model().holder.scale.x),.5);results.partial_ar5_to_single_legacy_visible_on_hiro=true;await ctx.close();
   }finally{await hiroBrowser.close();}
+  const meshBrowser=await launch([`--use-file-for-fake-video-capture=${out}/meshopt.y4m`]);
+  try{
+   const ctx=await meshBrowser.newContext({permissions:['camera']}),p=await ctx.newPage();p.on('pageerror',e=>errors.push(e.message));
+   await p.goto(entry);await p.locator('#start').click();await p.waitForFunction(()=>ARViewer.model()?.data.codec==='meshopt-0.23+gzip',null,{timeout:25000});
+   assert.equal(await p.locator('a-scene').count(),1);assert.equal(await p.locator('video').count(),1);
+   await p.locator('#stop').click();await ctx.setOffline(true);await p.reload();await p.waitForFunction(()=>document.querySelector('#offline').textContent.includes('Ресурсы сохранены'));
+   const vectors=JSON.parse(fs.readFileSync(path.join(root,'qr-sheet/test/meshopt-vectors.json'))),fixture=vectors.find(v=>v.name==='optimized-40-True');
+   await p.locator('#scene-file').setInputFiles({name:'new-codec-offline.html',mimeType:'text/html',buffer:Buffer.from(sheet(fixture))});
+   await p.waitForFunction(()=>ARViewer.model()?.data.codec==='meshopt-0.23+gzip');
+   results.qrl2_meshopt_same_camera_and_cached_decoder_html_restore=true;await ctx.close();
+  }finally{await meshBrowser.close();}
   assert.deepEqual(errors,[]);assert.deepEqual(requests.filter(u=>!u.startsWith(base)&&!u.startsWith('blob:')),[]);results.no_page_errors_or_external_requests=true;
   fs.writeFileSync(path.join(out,'results.json'),JSON.stringify(results,null,2));console.log(JSON.stringify(results,null,2));
  }finally{await browser.close();}

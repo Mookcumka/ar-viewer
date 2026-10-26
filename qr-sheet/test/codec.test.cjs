@@ -125,3 +125,5 @@ test('isolated offline cache cannot delete other installations or store model/qu
   w.entries.delete(w.scope + 'qr-geometry.js');
   w.handlers.message({ data: { type: 'CACHE_STATUS' }, ports: [{ postMessage: value => { assert.equal(value.ready,false); } }], waitUntil: x => p = x }); await p;
 });
+
+require("./meshopt.test.cjs");

@@ -54,3 +54,18 @@ if len(sys.argv) > 2:
         out.write(b'YUV4MPEG2 W640 H480 F10:1 Ip A1:1 C420jpeg\n')
         for _ in range(200):out.write(b'FRAME\n'+frame.tobytes()+chroma)
     print(target/'hiro.y4m')
+
+# Versioned QRL2 with actual meshoptimizer payload, C# unit fixture (not Revit).
+new_vectors=json.loads((Path(__file__).parent/'meshopt-vectors.json').read_text())
+v=next(v for v in new_vectors if v['name']=='optimized-40-True')
+with (target/'meshopt.y4m').open('wb') as out:
+    out.write(b'YUV4MPEG2 W640 H480 F10:1 Ip A1:1 C420jpeg\n')
+    for packet in v['packets']:
+        qr=qrencoder.QRCode(24,qrencoder.QRErrorCorrectLevel.M);qr.addData(qrencoder.QR8bitByte(bytes(packet)));qr.make();n=qr.getModuleCount()
+        image=Image.new('L',((n+8)*3,(n+8)*3),255)
+        for y in range(n):
+            for x in range(n):
+                if qr.isDark(y,x):image.paste(0,((x+4)*3,(y+4)*3,(x+5)*3,(y+5)*3))
+        frame=Image.new('L',(640,480),255);frame.paste(image,((640-image.width)//2,(480-image.height)//2))
+        for _ in range(50):out.write(b'FRAME\n'+frame.tobytes()+chroma)
+print(target/'meshopt.y4m')
