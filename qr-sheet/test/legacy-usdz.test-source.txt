@@ -24,8 +24,7 @@
         let nx = u[1] * v[2] - u[2] * v[1], ny = u[2] * v[0] - u[0] * v[2], nz = u[0] * v[1] - u[1] * v[0];
         const len = Math.hypot(nx, ny, nz) || 1;
         nx /= len; ny /= len; nz /= len;
-        const position = mesh.precisePositions ? x => String(x) : f;
-        for (const q of [a, b, c]) { points.push(`(${position(q[0])}, ${position(q[1])}, ${position(q[2])})`); normals.push(`(${f(nx)}, ${f(ny)}, ${f(nz)})`); }
+        for (const q of [a, b, c]) { points.push(`(${f(q[0])}, ${f(q[1])}, ${f(q[2])})`); normals.push(`(${f(nx)}, ${f(ny)}, ${f(nz)})`); }
       }
       out.push(`
     def Mesh "Mesh${m}" (
@@ -45,8 +44,7 @@
     });
     out.push('\n    def Scope "Materials"\n    {');
     meshes.forEach((mesh, m) => {
-      // Optional exact linear colour/opacity for generic imported scenes; legacy calls keep their output.
-      const [r, g, b] = mesh.linearColor ? mesh.linearColor.map(f) : mesh.color.map(x => f(Math.pow(x / 255, 2.2)));
+      const [r, g, b] = mesh.color.map(x => f(Math.pow(x / 255, 2.2)));
       out.push(`
         def Material "Material${m}"
         {
@@ -56,7 +54,7 @@
                 uniform token info:id = "UsdPreviewSurface"
                 color3f inputs:diffuseColor = (${r}, ${g}, ${b})
                 float inputs:metallic = 0
-                float inputs:roughness = 0.7${mesh.opacity === undefined ? "" : `\n                float inputs:opacity = ${f(mesh.opacity)}`}
+                float inputs:roughness = 0.7
                 token outputs:surface
             }
         }`);
@@ -94,7 +92,7 @@
     if (!meshes.length) throw new Error("Нет геометрии для Quick Look");
     return zip("model.usda", new TextEncoder().encode(usda(meshes)));
   }
-  const api = { build, usda, zip, crc32, genericMeshProfile: 1 };
+  const api = { build, usda, zip, crc32 };
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.ARUsdz = api;
 })(typeof globalThis === "object" ? globalThis : this);

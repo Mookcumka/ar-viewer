@@ -1,7 +1,7 @@
 // Scope-specific names avoid deleting caches belonging to other apps on the origin.
 const PREFIX = "ar-style-cube-" + encodeURIComponent(self.registration.scope) + "-";
-const CACHE = PREFIX + "v6";
-const CORE = ["./", "./index.html", "./scan.html", "./manifest.webmanifest", "./icon.svg", "./ar-data.js", "./viewer.js", "./usdz.js", "./quicklook.svg", "./offline.js"];
+const CACHE = PREFIX + "v7";
+const CORE = ["./", "./index.html", "./scan.html", "./manifest.webmanifest", "./icon.svg", "./ar-data.js", "./qr-geometry.js", "./viewer.js", "./usdz.js", "./quicklook.svg", "./offline.js"];
 const VENDOR = ["./vendor/aframe.min.js", "./vendor/aframe-ar.js", "./vendor/jsQR.js", "./vendor/patt.hiro", "./vendor/camera_para.dat"];
 const RESOURCES = [...CORE, ...VENDOR];
 const URLS = new Set(RESOURCES.map(path => new URL(path, self.registration.scope).href));
@@ -24,7 +24,7 @@ self.addEventListener("message", event => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE);
     const entries = await Promise.all(RESOURCES.map(path => cache.match(new URL(path, self.registration.scope).href)));
-    event.ports[0].postMessage({ ready: entries.every(Boolean) });
+    event.ports[0].postMessage({ ready: entries.every(Boolean), scope: self.registration.scope, version: 7 });
   })());
 });
 self.addEventListener("fetch", event => {
@@ -32,6 +32,11 @@ self.addEventListener("fetch", event => {
   const url = new URL(event.request.url);
   url.search = "";
   url.hash = "";
+  const aliases = ["./qr-sheet/", "./qr-sheet/index.html", "./compare/qr-sheet-1/", "./compare/qr-sheet-1/qr-sheet/", "./compare/qr-sheet-1/qr-sheet/index.html"];
+  if (aliases.some(path => new URL(path, self.registration.scope).href === url.href)) {
+    event.respondWith(Promise.resolve(Response.redirect(new URL("./index.html?diagnostics=1", self.registration.scope).href, 302)));
+    return;
+  }
   // Do not intercept or persist arbitrary data, external URLs or another app's pages.
   if (!URLS.has(url.href)) return;
   event.respondWith((async () => {
@@ -40,3 +45,4 @@ self.addEventListener("fetch", event => {
     return hit || fetch(event.request);
   })());
 });
+

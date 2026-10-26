@@ -38,8 +38,9 @@ button{line-height:1.2}
 body.live #intro,body.live #offline{display:none}
 .a-enter-vr,.a-enter-ar,.a-orientation-modal{display:none!important}
 #intro{margin:0;color:var(--muted);font-size:13.5px}
+#diagnostics{font-size:12px;max-height:38vh;overflow:auto}#diagnostics button{font-size:12px;padding:12px}#diagnostics label{display:block;margin:10px 0}#panel{max-height:70vh;overflow:auto}
 </style>
-<script defer src="./ar-data.js"></script><script defer src="./usdz.js"></script><script defer src="./vendor/jsQR.js"></script>
+<script defer src="./ar-data.js"></script><script defer src="./qr-geometry.js"></script><script defer src="./usdz.js"></script><script defer src="./vendor/jsQR.js"></script>
 <script defer src="./vendor/aframe.min.js"></script><script defer src="./vendor/aframe-ar.js"></script>
 <script defer src="./offline.js"></script><script defer src="./viewer.js"></script>
 </head><body>
@@ -54,8 +55,11 @@ body.live #intro,body.live #offline{display:none}
       <button id="start" class="primary" disabled>Открыть камеру</button>
       <button id="stop" class="ghost" hidden>Стоп</button>
       <a id="look" rel="ar" hidden><img src="./quicklook.svg" alt="Открыть в Quick Look"></a>
+      <button id="new-sheet" class="ghost" hidden>Новый лист</button>
     </div>
     <small id="offline" role="status">Проверка офлайн-ресурсов…</small>
+    <details id="diagnostics" hidden><summary>Диагностика</summary><p id="scene-info"></p><label>Открыть HTML Exporto <input id="scene-file" type="file" accept=".html,text/html"></label><button id="report" class="ghost">Сохранить отчёт</button><a id="save-model" hidden download="Exporto-AR.usdz">Сохранить USDZ</a><p>Импорт файла проверяет данные без оптического чтения. Нажатие Quick Look не подтверждает реальный AR. Геометрия и кадры в журнал не включаются.</p></details>
   </div>
 </div>
 </body></html>
+
