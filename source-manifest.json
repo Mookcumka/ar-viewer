@@ -1,6 +1,6 @@
 {
   "schema": "ar-viewer-shared-runtime-1",
-  "sourceCommit": "58d2629b8b58a0caa02f21b68bae23b2400ca158",
+  "sourceCommit": "61930bf2b872d7a84b07fad889c16bc7e7f15a2d",
   "sha256": {
     "index.html": "1db0c2d8ef0237090cf6f0b4cf443db0d3714d85903b671cb9fd791269153d09",
     "scan.html": "ce64bdd82c994118ea6249439ccdbf489b31680830e62405b19e09c12e00b917",
@@ -12,7 +12,7 @@
     "sw.js": "cf84141ffecd1692a7110eb924b772d4efd371195efe652a5166278c1160bff7",
     "manifest.webmanifest": "1bc16666fe8161cd5cf064140cbfe2c35cb0614746dbfe417efc53fc74c3fa52",
     "icon.svg": "6b1415488a5761dd8b6d2844381646e4e407eec3a40995a46c596073e1bb8c21",
-    "quicklook.svg": "3fa85f118b1e8e2287522143762c81a624193d6f1cfc42e83c699ea4d6387b72",
+    "quicklook.svg": "e3b12c04e454bc1a28bc8c3b23db6007a96c85193906bd00b01839ffaeb8932a",
     "diagnostic-route.js": "5bd8c7ed3f6f071389815ea92844c6f6eb78cbc329d16ceae0e8f2747ed03ebf",
     "qr-sheet/index.html": "a1d43c5e4958c31d4fc5396df810b204693067555b73cc7d5fdae60a04626523",
     "qr-sheet/sw.js": "8376850ed2c613278cd75ca63127a35cef509a7762a435c00d0c68e8b7350b1c",
