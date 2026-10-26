@@ -72,7 +72,7 @@ test("cache cleanup keeps other apps and another AR installation", async () => {
   let pending;
   w.handlers.activate({ waitUntil: p => pending = p });
   await pending;
-  assert.deepEqual(w.deleted, [prefix + "v3"]);
+  assert.deepEqual(w.deleted, [prefix + "v3", prefix + "v6"]);
 });
 test("worker serves cached deep link offline and ignores unrelated URLs", async () => {
   const w = worker([]);
@@ -157,3 +157,4 @@ test("AR5 rejects mixed models, corrupted parts and bad numbering", () => {
   for (const bad of ["AR5;id=abcd;part=3;of=2;data=x", "AR5;id=abcd;part=1;of=1;data=x", "AR5;id=ABCD;part=1;of=2;data=x"])
     assert.throws(() => data.parse(bad), bad);
 });
+
