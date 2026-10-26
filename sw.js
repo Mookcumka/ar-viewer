@@ -1,7 +1,8 @@
+importScripts("./version.js");
 // Scope-specific names avoid deleting caches belonging to other apps on the origin.
 const PREFIX = "ar-style-cube-" + encodeURIComponent(self.registration.scope) + "-";
-const CACHE = PREFIX + "v9";
-const CORE = ["./", "./index.html", "./scan.html", "./manifest.webmanifest", "./icon.svg", "./ar-data.js", "./qr-geometry.js", "./viewer.js", "./scan-feedback.js", "./usdz.js", "./quicklook.svg", "./offline.js"];
+const CACHE = PREFIX + ARViewerVersion.version + "+" + ARViewerVersion.build + "-v" + ARViewerVersion.cacheVersion;
+const CORE = ["./", "./index.html", "./scan.html", "./manifest.webmanifest", "./icon.svg", "./ar-data.js", "./qr-geometry.js", "./viewer.js", "./version.js", "./webxr.js", "./scan-feedback.js", "./usdz.js", "./quicklook.svg", "./offline.js"];
 const VENDOR = ["./vendor/aframe.min.js", "./vendor/aframe-ar.js", "./vendor/jsQR.js", "./vendor/meshopt_decoder.js", "./vendor/patt.hiro", "./vendor/camera_para.dat"];
 const RESOURCES = [...CORE, ...VENDOR];
 const URLS = new Set(RESOURCES.map(path => new URL(path, self.registration.scope).href));
@@ -24,7 +25,7 @@ self.addEventListener("message", event => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE);
     const entries = await Promise.all(RESOURCES.map(path => cache.match(new URL(path, self.registration.scope).href)));
-    event.ports[0].postMessage({ ready: entries.every(Boolean), scope: self.registration.scope, version: 9 });
+    event.ports[0].postMessage({ ready: entries.every(Boolean), scope: self.registration.scope, version: ARViewerVersion.cacheVersion, appVersion: ARViewerVersion.version, build: ARViewerVersion.build });
   })());
 });
 self.addEventListener("fetch", event => {

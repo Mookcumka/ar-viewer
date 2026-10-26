@@ -4,7 +4,7 @@
   const status = document.getElementById("offline"); if (!status) return;
   if (!navigator.serviceWorker) { status.textContent = "Офлайн-режим недоступен в этом браузере."; return; }
   (async () => {
-    const registration = await navigator.serviceWorker.register("./sw.js", { scope: "./" });
+    const registration = await navigator.serviceWorker.register("./sw.js", { scope: "./", updateViaCache: "none" });
     const worker = await new Promise((resolve, reject) => {
       const watched = new Set();
       const cleanup = () => { clearTimeout(timer); registration.removeEventListener("updatefound", watch); watched.forEach(w => w.removeEventListener("statechange", watch)); };
@@ -22,7 +22,9 @@
       channel.port1.onmessage=e=>{clearTimeout(timer);channel.port1.close();resolve(e.data);};
       worker.postMessage({type:"CACHE_STATUS"},[channel.port2]);
     });
-    status.textContent = result.ready && result.scope===ownScope && result.version===9
+    const matchesRunningApp = result.scope===ownScope && result.version===ARViewerVersion.cacheVersion && result.appVersion===ARViewerVersion.version && result.build===ARViewerVersion.build;
+    window.AROfflineState = {...result, matchesRunningApp, readyForThisBuild: !!result.ready && matchesRunningApp};
+    status.textContent = window.AROfflineState.readyForThisBuild
       ? "Ресурсы сохранены офлайн. Работа камеры без сети требует проверки на вашем устройстве."
       : "Не все ресурсы этой версии сохранены. Повторите с интернетом.";
   })().catch(error=>{status.textContent="Офлайн-готовность не подтверждена: "+error.message;});

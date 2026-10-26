@@ -52,14 +52,15 @@ body.live #intro,body.live #offline{display:none}
 #scene-file{display:none}#open-file{font-size:13px;padding:12px}#sound{font-size:12px;padding:10px}
 body.live #intro{display:none}@media(orientation:landscape) and (max-height:500px){#panel{width:min(360px,48vw);max-height:calc(100dvh - 85px);align-self:flex-end;padding:12px;gap:8px}#reticle{left:27%;top:50%;width:min(45vw,65vh)}#chip{max-width:48vw}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+#app-version{font-size:11px;opacity:.8;font-variant-numeric:tabular-nums}#ar-support{margin:0;font-size:12px;color:var(--muted)}#webxr-canvas{position:fixed;inset:0;z-index:10}#xr-controls{display:flex;flex-direction:column;gap:10px}#xr-controls label{display:flex;flex-wrap:wrap;gap:8px}#xr-size{width:100%}#xr-controls small{color:var(--muted)}body.xr #panel>.actions,body.xr #intro,body.xr #scan-guide,body.xr #offline,body.xr #diagnostics,body.xr #part-progress,body.xr #scan-event,body.xr #ar-support,body.xr #reticle{display:none!important}body.xr #ui{background:transparent}:xr-overlay{background:transparent}
 </style>
-<script defer src="./ar-data.js"></script><script defer src="./vendor/meshopt_decoder.js"></script><script defer src="./qr-geometry.js"></script><script defer src="./usdz.js"></script><script defer src="./vendor/jsQR.js"></script>
+<script defer src="./version.js"></script><script defer src="./webxr.js"></script><script defer src="./ar-data.js"></script><script defer src="./vendor/meshopt_decoder.js"></script><script defer src="./qr-geometry.js"></script><script defer src="./usdz.js"></script><script defer src="./vendor/jsQR.js"></script>
 <script defer src="./vendor/aframe.min.js"></script><script defer src="./vendor/aframe-ar.js"></script>
 <script defer src="./offline.js"></script><script defer src="./scan-feedback.js"></script><script defer src="./viewer.js"></script>
 </head><body>
 <svg id="scan-outline" aria-hidden="true"></svg>
 <div id="ui">
-  <div id="chip" class="glass"><span id="dot" hidden></span><div><b id="title">AR Style</b><small id="sheet">Просмотр модели с листа</small></div></div>
+  <div id="chip" class="glass"><span id="dot" hidden></span><div><b id="title">AR Style</b><small id="sheet">Просмотр модели с листа</small><small id="app-version" aria-label="Версия приложения">Версия загружается…</small></div></div>
   <div id="reticle" hidden><i></i><i></i><i></i><i></i></div>
   <div id="toast" class="glass" role="status"></div>
   <div id="panel" class="glass">
@@ -72,10 +73,13 @@ body.live #intro{display:none}@media(orientation:landscape) and (max-height:500p
       <button id="start" class="primary" disabled>Открыть камеру</button>
       <button id="stop" class="ghost" hidden>Стоп</button>
       <a id="look" rel="ar" aria-label="Открыть в AR" hidden><img src="./quicklook.svg" alt=""></a>
+      <button id="webxr-open" class="primary" hidden>Открыть в AR</button>
       <button id="open-file" class="ghost">Открыть HTML</button><input id="scene-file" type="file" accept=".html,text/html">
       <button id="sound" class="ghost" aria-pressed="false" title="Звук подтверждения новых частей">Звук выкл.</button>
       <button id="new-sheet" class="ghost" hidden>Новый лист</button>
     </div>
+    <p id="ar-support" hidden></p>
+    <div id="xr-controls" hidden><label>Размер просмотра: <output id="xr-size-label">35 см</output><input id="xr-size" type="range" min="5" max="100" value="35" aria-label="Размер модели в сантиметрах"></label><small>Размер для наглядного просмотра, без совмещения с чертежом.</small><div class="actions"><button id="xr-reset" class="ghost">Разместить заново</button><button id="xr-exit" class="primary">Выйти из AR</button></div></div>
     <small id="offline" role="status">Проверка офлайн-ресурсов…</small>
     <details id="diagnostics" hidden><summary>Диагностика</summary><p id="scene-info"></p><button id="report" class="ghost">Сохранить отчёт</button><a id="save-model" hidden download="Exporto-AR.usdz">Сохранить USDZ</a><p>Импорт файла проверяет данные без оптического чтения. Нажатие Quick Look не подтверждает реальный AR. Геометрия и кадры в журнал не включаются.</p></details>
   </div>
