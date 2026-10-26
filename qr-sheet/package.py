@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = ['index.html','scan.html','ar-data.js','qr-geometry.js','viewer.js','version.js','webxr.js','scan-feedback.js','usdz.js','offline.js','sw.js',
+FILES = ['index.html','scan.html','ar-data.js','qr-geometry.js','viewer.js','version.js','webxr.js','object-view.js','model-files.js','scan-feedback.js','usdz.js','offline.js','sw.js',
     'manifest.webmanifest','icon.svg','quicklook.svg','diagnostic-route.js','qr-sheet/index.html','qr-sheet/sw.js'] + \
     ['vendor/'+name for name in ('jsQR.js','meshopt_decoder.js','aframe.min.js','aframe-ar.js','patt.hiro','camera_para.dat')]
 
@@ -15,6 +15,7 @@ def package(destination, viewer_url=None):
     content = {name: (ROOT/name).read_bytes() for name in FILES}
     content['docs/ar/safari-qr-sheet.md'] = (ROOT.parent/'docs/ar/safari-qr-sheet.md').read_bytes()
     content['docs/ar/unified-viewer.md'] = (ROOT.parent/'docs/ar/unified-viewer.md').read_bytes()
+    content['docs/ar/approved-viewer-20261026.md'] = (ROOT.parent/'docs/ar/approved-viewer-20261026.md').read_bytes()
     content['docs/ar/android-version-20261026.md'] = (ROOT.parent/'docs/ar/android-version-20261026.md').read_bytes()
     content['docs/ar/scan-feedback-20261026.md'] = (ROOT.parent/'docs/ar/scan-feedback-20261026.md').read_bytes()
     content['licenses/jsQR-LICENSE.txt'] = (ROOT/'qr-sheet/jsQR-LICENSE.txt').read_bytes()
@@ -34,7 +35,7 @@ def package(destination, viewer_url=None):
         'USDZ writer and viewer: Mookcumka/AR-Project.\n').encode()
     manifest = {name: hashlib.sha256(data).hexdigest() for name,data in content.items()}
     content['source-manifest.json'] = (json.dumps({'schema':'Exporto-portable-viewer-1','sha256':manifest},indent=2)+'\n').encode()
-    content['README.txt'] = ('Exporto Safari QR experiment. Serve the entire folder via HTTPS.\n'
+    content['README.txt'] = ('Exporto AR Viewer. Serve the entire folder via HTTPS.\n'
         'Entry: index.html (same existing AR Style interface). Optional diagnostics: index.html?diagnostics=1.\n'
         'No second app, model fixtures, CDN or developer account required.\n'
         'First visit needs the viewer server. Later offline cache is conditional and may be evicted.\n'

@@ -1,9 +1,9 @@
-# AR Viewer 0.2.0-rc.1 · build20261026.1
+# AR Viewer 0.3.0-rc.1 · build20261026.2
 
-Draft: видимая версия и Android WebXR добавлены в единый viewer. Ещё не опубликовано и не проверено на реальном Android. iPhone Quick Look, legacy Hiro и протоколы QR сохранены.
+Draft, не опубликован. Реализация [Issue9](https://github.com/Mookcumka/ar-viewer/issues/9): компактный scanner, AR-first, Android AR/3D, самостоятельные USDZ/GLB через share/download, без HTML import/Stop/sound. iPhone использует родной switch Quick Look. Общие decoder/legacy/Hiro и Android #8 сохранены.
 
-[Контракт, версии, lifecycle, ограничения и приёмка](docs/ar/android-version-20261026.md).
+[Контракт, материалы, lifecycle, ограничения и приёмка](docs/ar/approved-viewer-20261026.md). Физический Revit→PDF→iPhone/Android AR ещё не принят. Браузерные тесты не заменяют устройство. Ничего не публиковать/не сливать без отдельного разрешения владельца.
 
-Общие collector/SHA/CBX1/2/meshoptimizer/THREE.Group, без моделей на сервере. Android AR использует стандартный WebXR/ARCore; нужны совместимое устройство, браузер и Google Play Services for AR. На неподдерживаемом устройстве честный отказ, без подмены AR на3D. Размер35см — явный display scale, не1:1 или drawing alignment.
+Исходный runtime — ar-poc/, публичный ar-viewer получает побайтную копию. PDF создаёт Exporto, viewer читает его QR камерой. Данные модели не отправляются серверу.
 
-Проверки: Node42PASS; browser WebXR session doubles, reference reset и cancellation races PASS. Физическая Android/iPhone AR-приёмка с настоящим Exporto QR открыта. Публикация только по отдельному разрешению владельца.
+Проверки: node --test test/qr.test.cjs qr-sheet/test/codec.test.cjs; с Playwright: node test/approved-browser.cjs и node test/approved-optical.cjs. Optical fixtures генерирует qr-sheet/test/make_camera_fixture.py (test-only данные). Portable ZIP: python qr-sheet/package.py destination.zip; обслуживать всю папку по HTTPS.

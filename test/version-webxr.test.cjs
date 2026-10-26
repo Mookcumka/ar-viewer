@@ -25,6 +25,6 @@ test('offline report distinguishes a complete old cache from the running applica
   vm.runInNewContext(read('offline.js'),{document:{getElementById:()=>label},navigator:{serviceWorker:{register:async()=>reg}},location:{href:scope},URL,MessageChannel,setTimeout,clearTimeout,ARViewerVersion:identity,window:state});
   for(let i=0;i<40&&!state.AROfflineState;i++)await new Promise(r=>setTimeout(r,5));
   assert.equal(state.AROfflineState.ready,true);assert.equal(state.AROfflineState.readyForThisBuild,match);assert.equal(state.AROfflineState.matchesRunningApp,match);
-  assert.equal(label.textContent.includes('Ресурсы сохранены'),match);
+  assert.equal(label.textContent.includes('Офлайн-ресурсы сохранены'),match);
  }
 });

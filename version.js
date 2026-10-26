@@ -1,7 +1,7 @@
 /* Application identity: independent of Exporto, QR schema and service-worker cache generation.
    Change version for product changes; build for every distributed revision. */
 (function (root) {
-  const value = Object.freeze({ version: "0.2.0-rc.1", build: "20261026.1", cacheVersion: 10 });
+  const value = Object.freeze({ version: "0.3.0-rc.1", build: "20261026.2", cacheVersion: 11 });
   root.ARViewerVersion = value;
   if (typeof module === "object" && module.exports) module.exports = value;
   if (root.document) {
