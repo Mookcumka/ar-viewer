@@ -1,0 +1,156 @@
+/* Exporto PR71 QRL1/CBX1 browser adapter. Wire format unchanged. No models or network I/O. */
+(function (root) {
+  "use strict";
+  const LIMITS = Object.freeze({ scene: 5142, packet: 905, chunk: 857, raw: 32 * 1024 * 1024,
+    metadata: 2 * 1024 * 1024, meshes: 10000, vertices: 1000000, indices: 3000000,
+    renderTriangles: 50000, html: 8 * 1024 * 1024 });
+  const IDENTITY = [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
+  const fail = message => { throw new Error(message); };
+  const finite = x => typeof x === "number" && Number.isFinite(x);
+  const vector = (a, n) => Array.isArray(a) && a.length === n && a.every(finite);
+  const hex = bytes => Array.from(bytes, x => x.toString(16).padStart(2, "0")).join("");
+  function bytes(value) {
+    if (!(value instanceof Uint8Array)) fail("Ожидались бинарные байты QR");
+    return value;
+  }
+  function magic(b, text, at = 0) { return [...text].every((x, i) => b[at + i] === x.charCodeAt(0)); }
+  function packet(input) {
+    const b = bytes(input);
+    if (b.length < 49 || b.length > LIMITS.packet || !magic(b, "QRL1")) fail("Это не пакет Exporto QRL1");
+    const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    const total = v.getUint32(36, true), index = v.getUint16(40, true), count = v.getUint16(42, true);
+    const length = v.getUint32(44, true), hash = hex(b.slice(4, 36));
+    if (total < 1 || total > LIMITS.scene || ![1,3,6].includes(count) || index >= count ||
+        length !== b.length - 48 || length < 1 || length > LIMITS.chunk || total > count * LIMITS.chunk || total < count)
+      fail("Неверные границы пакета QRL1");
+    return { hash, total, index, count, body: b.slice(48), key: `${hash}:${total}:${count}` };
+  }
+  class Collector {
+    constructor() { this.reset(); }
+    reset() { this.identity = null; this.parts = new Map(); }
+    add(input) {
+      const p = packet(input);
+      if (this.identity && p.key !== this.identity.key) fail("QR другой модели. Нажмите «Новый лист» перед сменой");
+      const old = this.parts.get(p.index);
+      if (old && (old.length !== p.body.length || old.some((x, i) => x !== p.body[i]))) fail("Конфликт повторной части QR");
+      const sum = [...this.parts.values()].reduce((n, b) => n + b.length, 0) + (old ? 0 : p.body.length);
+      if (sum > p.total) fail("Части превышают заявленный размер сцены");
+      this.identity = this.identity || p;
+      this.parts.set(p.index, p.body);
+      return { duplicate: !!old, received: this.parts.size, count: p.count, hash: p.hash,
+        complete: this.parts.size === p.count, bytes: sum, total: p.total };
+    }
+    join() {
+      const p = this.identity;
+      if (!p || this.parts.size !== p.count) fail("Не все QR собраны");
+      const joined = new Uint8Array(p.total);
+      let at = 0;
+      for (let i = 0; i < p.count; i++) { const b = this.parts.get(i); if (!b || at + b.length > joined.length) fail("Неверная длина частей"); joined.set(b, at); at += b.length; }
+      if (at !== p.total) fail("Длина сцены не совпадает с QRL1");
+      return { compressed: joined, hash: p.hash, count: p.count };
+    }
+  }
+  async function inflate(input) {
+    if (typeof DecompressionStream !== "function") fail("Нужен Safari с поддержкой gzip DecompressionStream");
+    const reader = new Blob([input]).stream().pipeThrough(new DecompressionStream("gzip")).getReader();
+    const chunks = []; let length = 0;
+    try {
+      for (;;) {
+        const r = await reader.read(); if (r.done) break;
+        length += r.value.length;
+        if (length > LIMITS.raw) { await reader.cancel(); fail("Распакованная сцена превышает 32 МиБ"); }
+        chunks.push(r.value);
+      }
+    } finally { reader.releaseLock(); }
+    const raw = new Uint8Array(length); let at = 0;
+    for (const chunk of chunks) { raw.set(chunk, at); at += chunk.length; }
+    return raw;
+  }
+  function decodeRaw(input) {
+    const b = bytes(input);
+    if (b.length < 8 || b.length > LIMITS.raw || !magic(b, "CBX1")) fail("Ожидалась сцена CBX1");
+    const v = new DataView(b.buffer, b.byteOffset, b.byteLength), size = v.getUint32(4, true);
+    if (size < 2 || size > LIMITS.metadata || 8 + size > b.length) fail("Неверный размер метаданных");
+    const meta = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(b.subarray(8, 8 + size)));
+    if (!meta || meta.bits !== 16 || meta.units !== "m" || meta.up !== "Y" ||
+        meta.profile !== "Exporto-AR-experimental-1") fail("Неподдерживаемый профиль сцены");
+    if (!vector(meta.originMeters, 3) || !finite(meta.scale) || meta.scale <= 0) fail("Неверная нормализация");
+    if (!Array.isArray(meta.meshes) || !meta.meshes.length || meta.meshes.length > LIMITS.meshes ||
+        !Array.isArray(meta.nodes) || meta.nodes.length !== meta.meshes.length) fail("Неверный список мешей/узлов");
+    if (!Array.isArray(meta.excluded) || meta.excluded.length > 100 || meta.excluded.some(x => typeof x !== "string" || x.length > 1024)) fail("Неверный отчёт исключений");
+    let end = 0, vertices = 0, indices = 0;
+    // Validate ALL layouts before allocations. Transforms are already baked by Exporto; do not apply origin/scale twice.
+    for (let i = 0; i < meta.meshes.length; i++) {
+      const m = meta.meshes[i], n = meta.nodes[i];
+      if (!m || !Number.isInteger(m.vertices) || m.vertices < 1 || m.vertices > LIMITS.vertices ||
+          !Number.isInteger(m.indices) || m.indices < 3 || m.indices % 3 || m.indices > LIMITS.indices ||
+          ![2,4].includes(m.width) || m.offset !== end) fail("Неверная разметка геометрии");
+      if (!vector(m.min, 3) || !vector(m.max, 3) || m.min.some((x, a) => x > m.max[a] || !finite(m.max[a] - x))) fail("Неверные границы меша");
+      if (!Array.isArray(m.rgba) || m.rgba.length !== 4 || m.rgba.some(x => !Number.isInteger(x) || x < 0 || x > 255)) fail("Неверный RGBA");
+      if (!n || n.mesh !== i || !Array.isArray(n.matrix) || n.matrix.length !== 16 || n.matrix.some((x, a) => x !== IDENTITY[a])) fail("Неподдерживаемая трансформация узла");
+      end += m.vertices * 6 + m.indices * m.width; vertices += m.vertices; indices += m.indices;
+      if (8 + size + end > b.length || vertices > LIMITS.vertices || indices > LIMITS.indices) fail("Геометрия обрезана или превышает лимит");
+    }
+    if (8 + size + end !== b.length) fail("Лишние/отсутствующие байты геометрии");
+    if (indices / 3 > LIMITS.renderTriangles) fail("Сцена восстановима, но превышает предел браузерного USDZ: 50000 треугольников. Модель не обрезана");
+    const bounds = { min: [Infinity,Infinity,Infinity], max: [-Infinity,-Infinity,-Infinity] };
+    const meshes = meta.meshes.map(m => {
+      const start = 8 + size + m.offset, positions = new Float64Array(m.vertices * 3), faces = new Uint32Array(m.indices);
+      for (let j = 0; j < positions.length; j++) {
+        const a = j % 3, x = m.min[a] + v.getUint16(start + j * 2, true) / 65535 * (m.max[a] - m.min[a]);
+        if (!finite(x)) fail("Переполнение координаты");
+        positions[j] = x; bounds.min[a] = Math.min(bounds.min[a], x); bounds.max[a] = Math.max(bounds.max[a], x);
+      }
+      const at = start + m.vertices * 6;
+      for (let j = 0; j < faces.length; j++) {
+        faces[j] = m.width === 2 ? v.getUint16(at + j * 2, true) : v.getUint32(at + j * 4, true);
+        if (faces[j] >= m.vertices) fail("Индекс за пределами меша");
+      }
+      return { positions, indices: faces, rgba: m.rgba.slice() };
+    });
+    const extent = bounds.min.map((x, a) => bounds.max[a] - x);
+    if (!extent.every(finite)) fail("Переполнение размеров сцены");
+    return { meshes, vertices, triangles: indices / 3, bounds, extent, originMeters: meta.originMeters,
+      scale: meta.scale, units: "m", up: "Y", excluded: meta.excluded.slice(), rawBytes: b.length };
+  }
+  async function restore(joined) {
+    if (!root.crypto?.subtle) fail("Для SHA-256 нужен защищённый контекст HTTPS");
+    const hash = hex(new Uint8Array(await root.crypto.subtle.digest("SHA-256", joined.compressed)));
+    if (hash !== joined.hash) fail("SHA-256 не совпадает. Модель не создана");
+    const scene = decodeRaw(await inflate(joined.compressed));
+    return Object.assign(scene, { sha256: hash, compressedBytes: joined.compressed.length, qrCount: joined.count });
+  }
+  function htmlPackets(text) {
+    // Treat a user HTML as data only. Never parse into a live DOM, evaluate it, or follow its URLs.
+    if (typeof text !== "string" || new TextEncoder().encode(text).length > LIMITS.html) fail("HTML превышает 8 МиБ");
+    const values = [...text.matchAll(/data-packet="([A-Za-z0-9+/=]+)"/g)];
+    if (!values.length || values.length > 6) fail("В HTML нет 1–6 пакетов Exporto");
+    return values.map(m => {
+      if (m[1].length > 1208 || m[1].length % 4 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(m[1])) fail("Неверный base64 пакета");
+      return Uint8Array.from(atob(m[1]), x => x.charCodeAt(0));
+    });
+  }
+  // Legacy builder consumes flat triangles. Keep it generic; no album IDs, primitives or model fixtures.
+  function usdzMeshes(scene) {
+    const linear = x => { const c = x / 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    return scene.meshes.map(m => {
+      // USD point3f is float32: validate this final conversion rather than silently rounding to 5 decimals.
+      const positions = new Float32Array(m.indices.length * 3);
+      for (let i = 0; i < m.indices.length; i++) for (let a = 0; a < 3; a++) positions[i * 3 + a] = m.positions[m.indices[i] * 3 + a];
+      if (!positions.every(finite)) fail("Координаты не помещаются в USDZ float32");
+      const normal = (p, a, b, c) => {
+        const u = [0,1,2].map(k => p[b+k] - p[a+k]), v = [0,1,2].map(k => p[c+k] - p[a+k]);
+        return [u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0]];
+      };
+      for (let i = 0; i < m.indices.length; i += 3) {
+        const old = normal(m.positions, m.indices[i]*3, m.indices[i+1]*3, m.indices[i+2]*3);
+        const next = normal(positions, i*3, i*3+3, i*3+6);
+        const length = Math.hypot(...next), dot = old.reduce((n,x,k) => n + x * next[k], 0);
+        if (!finite(length) || length === 0 || !finite(dot) || dot <= 0) fail("USDZ float32 схлопывает треугольник или меняет нормаль. Модель не обрезана");
+      }
+      return { positions, precisePositions: true, color: m.rgba.slice(0, 3), linearColor: m.rgba.slice(0, 3).map(linear), opacity: m.rgba[3] / 255 };
+    });
+  }
+  const api = { LIMITS, Collector, packet, restore, decodeRaw, htmlPackets, usdzMeshes };
+  if (typeof module === "object" && module.exports) module.exports = api; else root.ExportoQr = api;
+})(typeof globalThis === "object" ? globalThis : this);

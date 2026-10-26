@@ -1,0 +1,5 @@
+jsQR 1.4.0 (cozmo/jsQR). Apache License 2.0.
+Source/license: https://github.com/cozmo/jsQR
+Versioned package: https://cdn.jsdelivr.net/npm/jsqr@1.4.0/LICENSE
+Existing vendored dist reused byte-for-byte, no changes. See licenses/jsQR-LICENSE.txt.
+USDZ writer and viewer: Mookcumka/AR-Project.
