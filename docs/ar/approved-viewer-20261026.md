@@ -1,6 +1,6 @@
 # AR Viewer — реализация Issue9, AR-first и самостоятельные файлы
 
-Status 2026-10-27: rc.3/build20261027.2/cache13 was published after explicit owner authorization. Current follow-up is rc.4/build20261027.3/cache14, Draft only, NOT published. Device acceptance remains open. The approved UI/AR/export contract below is retained; dense-QR detail acquisition and reticle changes are documented in [QR tracking](qr-tracking-20261027.md).
+Status 2026-10-27: rc.3/build20261027.2/cache13 was published after explicit owner authorization. Published baseline is rc.4/build20261027.3/cache14. Current GBX1 follow-up is rc.5/build20261027.4/cache15, Draft only, NOT published. Device acceptance remains open. The approved UI/AR/export contract below is retained; dense-QR detail acquisition and reticle changes are documented in [QR tracking](qr-tracking-20261027.md).
 
 
 ## Один источник и границы
@@ -49,7 +49,7 @@ Exporto, его PR71/Issue72, генераторы Revit и PDF не измен�
 
 ## Офлайн и версии
 
-Один version.js остаётся источником semver/build/cache identity. Root worker/cache14 включает model-files.js/object-view.js/camera.js. Portable allowlist включает их и документацию; тестовых сцен в ZIP нет. Обновление потребует загрузки ресурсов с интернетом; затем QR restore/сохранение файлов локальны. Хранение cache условно: ОС может удалить его, тогда нужен независимый совместимый источник кода. Offline AR/системные share surfaces на реальном устройстве ещё не измерены.
+Один version.js остаётся источником semver/build/cache identity. Root worker/cache15 включает model-files.js/object-view.js/camera.js. Portable allowlist включает их и документацию; тестовых сцен в ZIP нет. Обновление потребует загрузки ресурсов с интернетом; затем QR restore/сохранение файлов локальны. Хранение cache условно: ОС может удалить его, тогда нужен независимый совместимый источник кода. Offline AR/системные share surfaces на реальном устройстве ещё не измерены.
 
 ## Проверки и честные границы
 

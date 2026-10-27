@@ -218,7 +218,7 @@
   }
 
   function buildMeshes(decoded) {
-    // All positions come from the verified CBX1 scene; no album-specific or synthetic geometry.
+    // All positions come from the verified CBX/GBX scene; no album-specific or synthetic geometry.
     const triangles = qrGeometry.usdzMeshes(decoded), group = new THREE.Group();
     try {
       for (const m of triangles) {
@@ -271,7 +271,7 @@
       // CBX1 has no paper/Hiro placement contract: don't invent 1:N from exportScale.
       model = { data: { kind: "mesh", identity: decoded.sha256, exportScale: decoded.scale, codec: decoded.codec }, group, holder: null };
       group = null; acceptedHash = decoded.sha256; collecting = false;
-      report.scene = { packetVersion: packet.version, codec: decoded.codec, decodeMilliseconds: decoded.decodeMilliseconds, sha256: decoded.sha256, parts: decoded.qrCount, compressedBytes: decoded.compressedBytes, rawBytes: decoded.rawBytes,
+      report.scene = { packetVersion: packet.version, codec: decoded.codec, decodeMilliseconds: decoded.decodeMilliseconds, sha256: decoded.sha256, parts: decoded.qrCount, compressedBytes: decoded.compressedBytes, rawBytes: decoded.rawBytes, objects: decoded.objects, primitives: decoded.primitives,
         usdzBytes: blob.size, meshes: decoded.meshes.length, vertices: decoded.vertices, triangles: decoded.triangles,
         extentMeters: decoded.extent, exportScale: decoded.scale, originMeters: decoded.originMeters, excluded: decoded.excluded };
       report.acceptance.integrityVerified = true; report.acceptance.usdzCreated = true;
@@ -449,7 +449,7 @@
           const key=Array.from(raw).join(',');
           if(performance.now()-frameAt<400)outline(hit,video,image,'decoded',key);
           report.scan.decoded = (report.scan.decoded || 0) + 1;
-          const binary=raw.length>=4 && raw[0]===81 && raw[1]===82 && raw[2]===76 && (raw[3]===49 || raw[3]===50);
+          const binary=raw.length>=4 && raw[0]===81 && raw[1]===82 && raw[2]===76 && (raw[3]===49 || raw[3]===50 || raw[3]===51);
           try {
             if (binary) {
               const result = await ingestMesh(raw, 'camera');

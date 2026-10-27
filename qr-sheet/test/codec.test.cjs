@@ -129,3 +129,6 @@ test('isolated offline cache cannot delete other installations or store model/qu
 });
 
 require("./meshopt.test.cjs");
+
+require('./gbx-transport.test.cjs');
+require('./gbx-golden.test.cjs');
