@@ -1,6 +1,9 @@
 # Интеллектуальный QR-сканер: detection → tracking → decode → validation
 
-Задание владельца 27.10.2026, этап2 после камеры. Кандидат **0.3.0-rc.3 / build20261027.2 / cache13**. Изолированные Draft PR поверх camera-веток ar-viewer #10 / AR-Project #73. Ничего не опубликовано, не слито, не установлено. Физические устройства и реальные Revit QR этим этапом не приняты.
+Status update 2026-10-27: rc.3/build20261027.2/cache13 was merged and published with owner authorization (ar-viewer #11 -> #10; AR-Project #74 -> #73 -> #72). Owner reports magnetic acquisition works only when bringing the phone closer to the dense Exporto sheet. Device acceptance remains OPEN. The earlier candidate description below records the original implementation; the follow-up section overrides its detail-search and reticle behavior.
+
+Follow-up candidate: **0.3.0-rc.4 / build20261027.3 / cache14**, Draft only, NOT published.
+
 
 ## Принципы и общий код
 
@@ -66,3 +69,18 @@ Pixels передаются transfer buffer и живут только в пам
 - jsQR: https://github.com/cozmo/jsQR ; точный source SHA исходного bundle фиксирует build-qr-locator.py.
 - jsfeat pinned source: https://github.com/inspirit/jsfeat/tree/4c7b336bbeeb26e6cd4cdf3c7d414abe273846f3 ; https://inspirit.github.io/jsfeat/ — LK, homography, RANSAC.
 - OpenCV optical flow: https://docs.opencv.org/4.x/d4/dee/tutorial_optical_flow.html — метод LK и его ограничения.
+
+
+## Follow-up: dense QR acquisition from original video pixels
+
+Owner tested rc.3/build20261027.2 and `3D Oblozhka_2026-10-26_1648.html`; the frame attaches when the phone is brought closer. The fixed center search reticle was mistaken for an acquired polygon. QR mode now hides that static guide; only measured quadrilaterals appear. Existing Hiro-specific behavior remains.
+
+The original owner HTML was found locally and its SVGs inspected as untrusted data, without executing attachment scripts/instructions. It contains a 29-module launch code and four 109-module (v23) model codes, excluding quiet zones. A local raster probe of the actual code acquired it at 250px native size but not after scaling it to 125px in a 640px overview. This confirms a downsampling limitation; it does not measure physical camera focus/distance. Owner geometry and QR bytes are NOT committed to GitHub. Tests use existing synthetic codec vectors only.
+
+For source video larger than 640px, capture ONE additional crop BEFORE downsampling the overview. Each region covers half the source width and 65% of its height, resized only downwards to <=640px per side. A 3-by-2 overlapping grid covers the frame. The overview still feeds optical flow and large-code acquisition. High-resolution passes use detail + overview (two locator inputs instead of three); smaller original video retains the existing three-input search. One pending frame, 80ms capture attempt, 160ms detection gate, maximum eight tracks and all old expiry limits remain.
+
+The global region index advances only when the worker acknowledges an actual detail detection pass, not on flow-only frames. An acquired target whose detection is >=300ms old and last observation <500ms old gets a native crop centered on its current location. This avoids the known 6*240ms revisit gap exceeding the 900ms detection TTL. After at most TWO acknowledged focused passes, a global pass is mandatory, so known QR cannot starve acquisition of others. With many targets/slow processing, some outlines can still expire and reacquire; no unlimited hold or false confirmation is introduced.
+
+No visible zoom, camera constraint, second stream, payload decoder, protocol, AR implementation or model export behavior changes. Detection cannot recover detail absent in the original video because of distance, blur, glare, moire or motion. No guaranteed distance is claimed. Diagnostic tracking events include actual source and overview dimensions and the six-region search count, never pixels or payloads.
+
+Regression coverage: original-pixel acquisition and normalized corner mapping; native-region bounds/no-upscale; ack-driven search schedule; slow 240ms known-target revisit; multi-target global-search fairness; real worker running from offline cache with canvas stream 1280x960, dense QR250px, predecode detection, stationary identity, movement, loss, reacquisition and orientation. `node test/dense-browser.cjs` uses no physical camera and does not prove iPhone/Revit acceptance. Existing decoder/camera/Hiro/AR/share/offline suites remain required.

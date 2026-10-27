@@ -38,8 +38,15 @@
   };
  }
  function project(m,p){const z=m[6]*p.x+m[7]*p.y+m[8];return{x:(m[0]*p.x+m[1]*p.y+m[2])/z,y:(m[3]*p.x+m[4]*p.y+m[5])/z};}
+ // Read detail from the ORIGINAL video, before the overview loses dense QR modules.
+ function detailRegion(w,h,index,points=null){
+  if(Math.max(w,h)<=640)return null;
+  const rw=Math.round(w*.5),rh=Math.round(h*.65),col=index%3,row=Math.floor(index/3)%2;
+  const c=valid(points)?center(points):null,x=c?Math.max(0,Math.min(w-rw,Math.round(c.x*w-rw/2))):Math.round(col*(w-rw)/2),y=c?Math.max(0,Math.min(h-rh,Math.round(c.y*h-rh/2))):row*(h-rh),scale=Math.min(1,640/Math.max(rw,rh));
+  return {x,y,w:rw,h:rh,width:Math.round(rw*scale),height:Math.round(rh*scale),rect:{x:x/w,y:y/h,w:rw/w,h:rh/h}};
+ }
  function engine(cv,locator){
-  let tracks=[],serial=0,previous=null,last=0,lastDetection=-Infinity,region=0,width=0,height=0;
+  let tracks=[],serial=0,previous=null,last=0,lastDetection=-Infinity,region=0,width=0,height=0,detailSearched=false;
   const kernel=new cv.motion_model.homography2d();
   function reset(){tracks=[];previous=null;last=0;lastDetection=-Infinity;region=0;width=height=0;serial=0;}
   function flow(current,t){
@@ -66,7 +73,8 @@
    return valid(p,width,height)&&r.score<Math.sqrt(area(points))*.4&&area(p)/area(points)>.65&&area(p)/area(points)<1.55?p:null;
   }
   function crop(image,r){const data=new Uint8ClampedArray(r.w*r.h*4);for(let y=0;y<r.h;y++){const at=((y+r.y)*image.width+r.x)*4;data.set(image.data.subarray(at,at+r.w*4),y*r.w*4);}return{width:r.w,height:r.h,data};}
-  return {reset,process(image,at){
+  return {reset,get detailSearched(){return detailSearched;},process(image,at,details=[]){
+   detailSearched=false;
    if(!image||image.width>640||image.height>640||image.width<40||image.height<40||image.data.length!==image.width*image.height*4)throw Error('Invalid tracker frame');
    if(image.width!==width||image.height!==height||at-last>300){reset();width=image.width;height=image.height;}
    const current=new cv.pyramid_t(3);current.allocate(width,height,cv.U8C1_t);cv.imgproc.grayscale(image.data,width,height,current.data[0]);current.build(current.data[0],true);
@@ -78,7 +86,11 @@
      {x:0,y:0,w:width,h:Math.ceil(height*.6)},{x:0,y:Math.floor(height*.4),w:width,h:Math.ceil(height*.6)}];
     for(let row=0;row<2;row++)for(let col=0;col<3;col++){const x=Math.max(0,Math.floor((col-.12)*width/3)),y=Math.max(0,Math.floor((row-.12)*height/2));windows.push({x,y,w:Math.min(width-x,Math.floor(width*1.24/3)),h:Math.min(height-y,Math.floor(height*1.24/2))});}
     for(let i=0;i<2;i++){views.push(windows[region]);region=(region+1)%windows.length;}
-    const used=new Set();for(const r of views)for(const raw of locator.detect(crop(image,r))){const p=raw.map(p=>({x:p.x+r.x,y:p.y+r.y}));if(!valid(p,width,height))continue;
+    // High-resolution crops are additional observations of the SAME frame and stream.
+    // Keep the overview for large QR; use one original-detail region instead of two blurred crops.
+    const inputs=details.length?[{image,rect:{x:0,y:0,w:1,h:1}}]:views.map(r=>({image:crop(image,r),rect:{x:r.x/width,y:r.y/height,w:r.w/width,h:r.h/height}}));
+    for(const d of details.slice(0,1))if(d?.image?.width>=40&&d.image.height>=40&&d.image.width<=640&&d.image.height<=640&&d.image.data.length===d.image.width*d.image.height*4&&d.rect&&['x','y','w','h'].every(k=>Number.isFinite(d.rect[k]))&&d.rect.x>=0&&d.rect.y>=0&&d.rect.w>0&&d.rect.h>0&&d.rect.x+d.rect.w<=1.00001&&d.rect.y+d.rect.h<=1.00001){inputs.unshift(d);detailSearched=true;}
+    const used=new Set();for(const input of inputs)for(const raw of locator.detect(input.image)){const r=input.rect,p=raw.map(p=>({x:(r.x+p.x/input.image.width*r.w)*width,y:(r.y+p.y/input.image.height*r.h)*height}));if(!valid(p,width,height))continue;
      let match=null,best=Infinity,ordered;for(const t of tracks){const a=near(t.points,p);if(a&&a.score<best){match=t;best=a.score;ordered=a.points;}}
      if(match){if(!used.has(match.id)){match.points=ordered;match.seen=match.detectedAt=at;used.add(match.id);}}
      else if(tracks.length<8){tracks.push({id:++serial,points:p,seen:at,detectedAt:at});used.add(serial);}
@@ -88,5 +100,5 @@
    return tracks.map(t=>({id:t.id,points:t.points.map(p=>({x:p.x/width,y:p.y/height})),at:t.seen,detectedAt:t.detectedAt}));
   }};
  }
- const api={bank,engine,valid,align,near,area};root.ARQrTracker=api;if(typeof module==='object'&&module.exports)module.exports=api;
+ const api={bank,engine,valid,align,near,area,detailRegion};root.ARQrTracker=api;if(typeof module==='object'&&module.exports)module.exports=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
