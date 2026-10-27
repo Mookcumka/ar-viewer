@@ -166,3 +166,5 @@ require('./scan-feedback.test.cjs');
 require("./version-webxr.test.cjs");
 
 require("./model-files.test.cjs");
+
+require("./camera.test.cjs");

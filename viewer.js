@@ -72,7 +72,7 @@
     ui.status.textContent = ""; delete ui.status.dataset.error;
     history.replaceState(null,"",location.pathname+location.search); log("new-sheet");
     await ended; if (ticket !== generation || document.hidden) return;
-    if (ownedStream && !suspended) startScanning($("arjs-video")); else startCamera();
+    if (ownedStream && !suspended) { showCameraMode(); startScanning(cameraVideo()); } else startCamera();
   }
 
   if (!window.AFRAME || !AFRAME.systems.arjs) {
@@ -387,7 +387,7 @@
       if (o.visible !== shown) {
         o.visible = shown;
         ui.reticle.hidden = shown;
-        ui.status.textContent = shown ? "Маркер найден" : "Наведите камеру на маркер Hiro или на QR другого листа";
+        if(ui.status.dataset.error!=='true')ui.status.textContent = shown ? "Маркер найден" : "Наведите камеру на маркер Hiro или на QR другого листа";
       }
     }
   });
@@ -396,16 +396,35 @@
 
   let cameraEpoch = 0, ownedStream = null, opening = false, videoSourceURL = null;
   const wiredVideos = new WeakSet();
+  const preview = $("camera-preview");
+  function cameraVideo() { return mode === 'marker' ? $("arjs-video") : preview; }
+  function cameraDiagnostics() {
+    if (!ownedStream) return;
+    const detail = {...ARCamera.snapshot(ownedStream.getVideoTracks()[0]), preview: ARCamera.preview(preview), display:mode==='marker'?'hiro-arjs':'qr-source'};
+    report.camera = detail;
+    $("camera-info").textContent = JSON.stringify(detail, null, 2);
+    log('camera-display',detail);
+  }
+  function showCameraMode() {
+    const hiro = mode === 'marker';
+    ui.body.classList.toggle('hiro',hiro); preview.hidden = hiro;
+    if(!hiro&&preview.srcObject&&preview.paused)preview.play().catch(()=>{});
+    if (scene) { scene.style.display = hiro ? '' : 'none'; if (hiro) scene.play(); else scene.pause(); }
+    const video = $("arjs-video"); if (video) video.style.display = hiro ? '' : 'none';
+    cameraDiagnostics();
+    if(ownedStream&&ARCamera.snapshot(ownedStream.getVideoTracks()[0]).settings.facingMode==='user')notice('Браузер выбрал переднюю камеру: задняя камера недоступна.','error');
+  }
+  preview.addEventListener('loadeddata',()=>videoReady(preview));
+  preview.addEventListener('resize',cameraDiagnostics);
+  window.addEventListener('resize',cameraDiagnostics);
   function stopCamera() {
     cameraEpoch++; clearFeedback(); opening = false; clearInterval(scanTimer); scanTimer = 0;
     ownedStream?.getTracks().forEach(track => track.stop()); ownedStream = null;
-    document.querySelectorAll("video").forEach(video => {
-      if (video.srcObject && video.srcObject.getTracks) video.srcObject.getTracks().forEach(track => track.stop());
-    });
+    preview.pause(); preview.srcObject = null; preview.hidden = true;
     log("camera-stop");
   }
 
-  // QR is read from the same video AR.js tracks: no second camera, no leaving the AR screen.
+  // QR uses the uncropped preview. Hiro uses the same owned stream through the existing AR.js bridge.
   function startScanning(video) {
     if (typeof jsQR !== "function" || !video) return;
     const canvas = document.createElement("canvas"), ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -464,12 +483,29 @@
     ui.body.classList.add("live");
     ui.status.textContent = "Подключение камеры…";
     let stream;
-    try { stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 960 } } }); }
+    let supported = {};
+    try { supported = navigator.mediaDevices?.getSupportedConstraints?.() || {}; } catch (_) { /* Preserve system defaults when capability probing is unavailable. */ }
+    try { stream = await navigator.mediaDevices.getUserMedia(ARCamera.request(supported)); }
     catch (error) { if (ticket === cameraEpoch) { pauseCamera(); ui.status.textContent = "Не удалось открыть камеру. Разрешите доступ в настройках браузера и повторите."; } return; }
     if (ticket !== cameraEpoch || document.hidden) { stream.getTracks().forEach(t => t.stop()); return; }
-    ownedStream = stream; opening = false; scanStartedAt = performance.now();
-    const settings = stream.getVideoTracks()[0]?.getSettings() || {};
-    log("camera-start",{width:settings.width,height:settings.height,frameRate:settings.frameRate,facingMode:settings.facingMode});
+    ownedStream = stream; scanStartedAt = performance.now();
+    const track = stream.getVideoTracks()[0];
+    log('camera-start',{...ARCamera.snapshot(track),supportedControls:{focusMode:!!supported.focusMode,zoom:!!supported.zoom,resizeMode:!!supported.resizeMode}});
+    await ARCamera.configure(track,supported,log,()=>ticket===cameraEpoch&&ownedStream===stream);
+    if(ticket!==cameraEpoch||ownedStream!==stream||document.hidden) { stream.getTracks().forEach(t=>t.stop()); return; }
+    opening = false;
+    if(track?.readyState==='ended'){pauseCamera();notice('Камера отключена. Откройте её снова.','error');return;}
+    for (const event of ['mute','unmute']) track?.addEventListener(event,()=>{ if(ownedStream===stream){log('camera-'+event,ARCamera.snapshot(track));cameraDiagnostics();} });
+    track?.addEventListener('ended',()=>{if(ownedStream===stream){pauseCamera();notice('Камера отключена. Откройте её снова.','error');}});
+    if(ARCamera.snapshot(track).settings.facingMode==='user')notice('Браузер выбрал переднюю камеру: задняя камера недоступна.','error');
+    preview.srcObject = stream; showCameraMode();
+    preview.play().catch(error=>{if(ownedStream===stream){pauseCamera();toast(error.message);}});
+    // AR.js retains its original calibration/crop only for Hiro. It never owns QR-preview layout.
+    if(mode!=='marker')return;
+    attachMarker(stream,ticket);
+  }
+
+  function attachMarker(stream,ticket) {
 
     if (!scene) {
     scene = document.createElement("a-scene");
@@ -495,15 +531,12 @@
     scene.appendChild(marker);
     scene.appendChild(follower);
     scene.appendChild(document.createElement("a-entity")).setAttribute("camera", "");
-    window.addEventListener("camera-error", () => {
-      pauseCamera();
-      ui.status.textContent = "Не удалось открыть камеру. Разрешите доступ в настройках браузера и перезагрузите страницу.";
-    }, { once: true });
+
     ui.reticle.hidden = false;
     ui.status.textContent = model ? "Наведите камеру на маркер Hiro" : "Наведите камеру на QR листа";
     document.body.appendChild(scene);
     }
-    scene.style.display = ""; scene.play();
+    showCameraMode();
     const activeScene = scene;
     const attach = () => {
       if (ticket !== cameraEpoch || ownedStream !== stream || scene !== activeScene) return;
@@ -526,9 +559,10 @@
 
   function videoReady(video) {
     if (document.hidden || suspended || !ownedStream || video?.srcObject !== ownedStream) return;
-    ui.status.textContent = model?.data.kind === "mesh" ? "Модель готова. Нажмите «Открыть в AR», если устройство поддерживает AR." : collecting ? "Считайте оставшиеся QR этого листа" : model ? "Наведите камеру на маркер Hiro" : "Наведите камеру на QR листа";
+    if(ui.status.dataset.error!=='true')ui.status.textContent = model?.data.kind === "mesh" ? "Модель готова. Нажмите «Открыть в AR», если устройство поддерживает AR." : collecting ? "Считайте оставшиеся QR этого листа" : model ? "Наведите камеру на маркер Hiro" : "Наведите камеру на QR листа";
     ui.reticle.hidden = model?.data.kind === "mesh";
-    startScanning(video);
+    showCameraMode();
+    startScanning(cameraVideo());
   }
   window.addEventListener("arjs-video-loaded", event => videoReady(event.detail?.component || $("arjs-video")));
 
@@ -539,7 +573,7 @@
     const source = scene?.systems.arjs?._arSession?.arSource;
     if (source?.domElement) { source.ready = false; source.domElement.pause(); source.domElement.srcObject = null; source.domElement.style.display = "none"; }
     scene?.pause(); if (scene) scene.style.display = "none";
-    ui.body.classList.remove("live"); ui.start.hidden = false; ui.reticle.hidden = true;
+    ui.body.classList.remove("live","hiro"); ui.start.hidden = false; ui.reticle.hidden = true;
     ui.start.hidden=!!model;ui.status.textContent = "";
   }
   // A QR opened from the system camera may reuse this tab and change only the fragment.
@@ -554,12 +588,13 @@
   });
   // Reopen explicitly after backgrounding; do not keep the camera running invisibly.
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden && !xrView.active && (scene || opening)) pauseCamera();
+    if (document.hidden && !xrView.active && (ownedStream || opening)) pauseCamera();
   });
 
   $("new-sheet").onclick = newSheet;
   ui.look.addEventListener("click", () => { report.acceptance.quickLookRequested = true; log("quicklook-request"); });
   $("report").onclick = async () => {
+    cameraDiagnostics();
     const file = new File([JSON.stringify({...report, offline: window.AROfflineState || null}, null, 2)], "ARViewer-report.json", { type: "application/json" });
     try { if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file] }); return; } }
     catch (error) { if (error.name === "AbortError") return; }
