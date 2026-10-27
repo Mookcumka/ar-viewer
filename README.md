@@ -1,16 +1,40 @@
-# AR Viewer 0.3.0-rc.4 · build20261027.3
+# AR Viewer 0.3.0-rc.4 · build 20261027.3
 
-Draft candidate, NOT published. Baseline rc.3/build20261027.2 was merged/published with owner approval; phone acceptance is still open. This follow-up searches dense QR using bounded original-video detail regions and removes the misleading fixed QR reticle. See the QR tracking document for measured limits and tests.
+Веб-просмотрщик для телефона. Считывает камерой QR-коды с печатного AR-листа Exporto, собирает 3D-модель прямо на телефоне и открывает её в AR. Вся геометрия модели хранится в самих QR: модель не скачивается и не отправляется на сервер, после первой загрузки сайт работает офлайн.
 
+**Опубликовано:** [mookcumka.github.io/ar-viewer](https://mookcumka.github.io/ar-viewer/) (GitHub Pages, 27.10.2026, cache 14). Публикация — только по отдельному слову владельца.
 
-Draft, не опубликован. Реализация [Issue9](https://github.com/Mookcumka/ar-viewer/issues/9): компактный scanner, AR-first, Android AR/3D, самостоятельные USDZ/GLB через share/download, без HTML import/Stop/sound. iPhone использует родной switch Quick Look. Общие decoder/legacy/Hiro и Android #8 сохранены.
+**Не проверено:** сквозной путь Revit → PDF → iPhone/Android на реальных телефонах и бумаге. Браузерные тесты эту проверку не заменяют.
 
-[Контракт, материалы, lifecycle, ограничения и приёмка](docs/ar/approved-viewer-20261026.md). Физический Revit→PDF→iPhone/Android AR ещё не принят. Браузерные тесты не заменяют устройство. Ничего не публиковать/не сливать без отдельного разрешения владельца.
+## Что умеет
 
-Исходный runtime — ar-poc/, публичный ar-viewer получает побайтную копию. PDF создаёт Exporto, viewer читает его QR камерой. Данные модели не отправляются серверу.
+- Сканер на весь экран; номера частей QR, принятая часть подсвечивается зелёным. Рамка следует за углами найденного QR; плотные QR ищутся в исходном разрешении видео.
+- Кнопка «новый лист» справа сверху сбрасывает принятые части без подтверждения.
+- После последнего QR сразу открывается AR: на iPhone — Quick Look (свой переключатель AR / Объект), на Android — WebXR с переключением AR / 3D. Если браузер требует нажатия, показывается одна кнопка «Открыть AR».
+- Сохранение собранной модели в настоящие файлы USDZ и GLB через «Поделиться» / загрузку.
+- Форматы QR: QRL1/QRL2 (геометрия Exporto, meshoptimizer), прежние AR1/AR4/AR5 и Hiro. Ручной импорт HTML, кнопки «Стоп» и звука нет.
 
-Проверки: node --test test/qr.test.cjs qr-sheet/test/codec.test.cjs; с Playwright: node test/approved-browser.cjs и node test/approved-optical.cjs, node test/camera-browser.cjs. Optical fixtures генерирует qr-sheet/test/make_camera_fixture.py (test-only данные). Portable ZIP: python qr-sheet/package.py destination.zip; обслуживать всю папку по HTTPS.
+Утверждённые решения по интерфейсу — [ar-viewer#9](https://github.com/Mookcumka/ar-viewer/issues/9). Экспорт AR-листа в PDF делает Exporto ([MyRevitPluginNet8#72](https://github.com/Mookcumka/MyRevitPluginNet8/issues/72), пока черновики #71, #73, #74). Новый формат GBX1/QRL3 согласуется там же; обязательной совместимости со старыми тестовыми QR нет (решение владельца 27.10.2026).
 
-[Камера: полный кадр, focus/zoom по capabilities, фактическая диагностика и границы проверки](docs/ar/camera-preview-20261027.md).
+## Где исходник
 
-[QR detection/tracking/validation: алгоритмы, состояния, limits, лицензии, тесты и ручная приёмка](docs/ar/qr-tracking-20261027.md). Browser suite: node test/tracker-browser.cjs.
+Единственный исходник — `ar-poc/` в AR-Project. Публичный репозиторий `ar-viewer` получает его побайтную копию парным PR. Версия задаётся в `version.js`.
+
+## Документы
+
+- [Контракт, материалы, жизненный цикл и ручная приёмка](docs/ar/approved-viewer-20261026.md)
+- [Камера: полный кадр, фокус и zoom по возможностям устройства, диагностика](docs/ar/camera-preview-20261027.md)
+- [Поиск, сопровождение и проверка QR](docs/ar/qr-tracking-20261027.md)
+- [Android и версия приложения](docs/ar/android-version-20261026.md)
+
+## Проверки
+
+```
+node --test test/qr.test.cjs qr-sheet/test/codec.test.cjs
+node test/approved-browser.cjs        # нужен Playwright
+node test/approved-optical.cjs
+node test/camera-browser.cjs
+node test/tracker-browser.cjs
+```
+
+Оптические фикстуры генерирует `qr-sheet/test/make_camera_fixture.py` (только тестовые данные). Переносимый ZIP: `python qr-sheet/package.py destination.zip`, папку обслуживать целиком по HTTPS.
