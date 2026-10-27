@@ -3,30 +3,32 @@
   "use strict";
   const $ = id => document.getElementById(id);
   const ui = { status: $("status"), title: $("title"), sheet: $("sheet"), dot: $("dot"), start: $("start"),
-    stop: $("stop"), look: $("look"), reticle: $("reticle"), toast: $("toast"), body: document.body };
+    look: $("look"), reticle: $("reticle"), body: document.body };
   const DEFAULT_CUBE = [59, 157, 221], DEFAULT_WALL = [185, 185, 185];
   // Marker units: the black square of Hiro (40 mm on paper) is one unit.
   const MARKER_MM = 40;
   const quickLook = !!(document.createElement("a").relList?.supports?.("ar"));
   let model = null, loading = null, scene = null, marker = null, follower = null, scanTimer = 0, suspended = false, usdzUrl = null;
   const qrGeometry = window.ExportoQr, collector = new qrGeometry.Collector();
-  let generation = 0, collecting = false, verifying = false, importing = false, acceptedHash = null, blockedHash = null, blockedLegacy = null, inputTicket = null;
+  let generation = 0, collecting = false, verifying = false, acceptedHash = null, blockedHash = null, blockedLegacy = null;
   let acceptedLegacyParts = new Set(), pendingLegacyParts = new Set(), blockedLegacyParts = new Set();
   let meshFailed = false;
   const diagnostic = new URLSearchParams(location.search).get("diagnostics") === "1";
-  const legacyIntro = "Для прежних AR-листов наведите камеру на Hiro. Чёрный квадрат на бумаге — 40 × 40 мм.";
   $("diagnostics").hidden = !diagnostic;
   const appVersion = window.ARViewerVersion;
   let xrSupported = false, xrChecking = true;
   const report = { app: appVersion, schema: "ARViewer-unified-1", build: appVersion.build, userAgent: navigator.userAgent, events: [], scene: null, scan: { accepted: 0, duplicates: 0, frames: 0 },
     acceptance: { source: null, cameraQrRead: false, integrityVerified: false, usdzCreated: false,
-      quickLookRequested: false, webxrRequested: false, webxrPlaced: false, actualAR: "owner verification required", realRevitProvenance: "owner verification required" } };
+      autoARAttempted: false, glbCreated: false, quickLookRequested: false, webxrRequested: false, webxrPlaced: false, actualAR: "owner verification required", realRevitProvenance: "owner verification required" } };
   function log(type, detail = {}) { report.events.push({ type, at: new Date().toISOString(), ...detail }); if (report.events.length > 160) report.events.shift(); }
-  let scanBatch = 0, lastNewPart = 0, lastNotice = '', lastNoticeAt = 0, scanStartedAt = 0;
-  let soundEnabled = false, audioContext = null;
+  const qrOverlay=ARQrOverlay.create({svg:$("scan-outline"),emit:detail=>{report.tracking=detail;$("tracking-info").textContent=JSON.stringify(detail);},onTargets:count=>{
+    if(mode==='scan'&&ownedStream&&!suspended)ui.reticle.hidden=count>0;
+  }});
+  let scanBatch = 0, scanStartedAt = 0;
+  let mode = "scan", files = null, modeTicket = 0;
   function clearFeedback(reset = false) {
-    scanBatch++; $("scan-outline").replaceChildren();
-    if (reset) { $("part-progress").replaceChildren(); $("part-progress").hidden = true; $("scan-event").hidden = true; lastNotice = ''; lastNewPart = 0; }
+    scanBatch++; qrOverlay.clear();
+    if (reset) { $("part-progress").replaceChildren(); $("part-progress").hidden = true; }
   }
   function showProgress(count, have, phase = 'collecting') {
     const progress = ARScanFeedback.progress(count, have), row = $("part-progress");
@@ -34,63 +36,41 @@
     for (let n = 1; n <= count; n++) {
       const item = document.createElement('span'), received = progress.have.includes(n);
       item.className = 'part'; item.dataset.received = String(received); item.setAttribute('role','listitem');
-      item.textContent = received ? n + ' ✓' : String(n); item.setAttribute('aria-label', 'QR ' + n + (received ? ' принят' : ' ожидается')); row.append(item);
+      item.textContent = String(n); item.setAttribute('aria-label', 'QR ' + n + (received ? ' принят' : ' ожидается')); row.append(item);
     }
     row.setAttribute('aria-label', 'Части модели: ' + progress.have.length + ' из ' + count);
-    if (phase === 'collecting') ui.status.textContent = 'Приняты: ' + progress.have.join(', ') + '. Остались: ' + progress.missing.join(', ') + '.';
-    $("scan-guide").hidden = phase !== 'collecting' || !ownedStream || suspended;
     return progress;
   }
-  function cue(complete = false) {
-    if (!soundEnabled || !audioContext) return;
-    const now = audioContext.currentTime;
-    for(let i=0;i<(complete ? 2 : 1);i++) { const o=audioContext.createOscillator(),g=audioContext.createGain();o.frequency.value=i ? 1046 : 784;g.gain.setValueAtTime(.045,now+i*.12);g.gain.exponentialRampToValueAtTime(.001,now+i*.12+.09);o.connect(g);g.connect(audioContext.destination);o.start(now+i*.12);o.stop(now+i*.12+.1); }
-  }
   function notice(text, kind = 'new', tone = kind) {
-    const now = performance.now();
-    if (kind === 'duplicate' && (now - lastNewPart < 1400 || text === lastNotice && now - lastNoticeAt < 2200)) return;
-    if (kind === 'new') lastNewPart = now;
-    lastNotice = text; lastNoticeAt = now; $("scan-event").dataset.kind = tone; $("scan-event").textContent = text; $("scan-event").hidden = false;
+    if (kind === 'error') { ui.status.dataset.error = 'true'; ui.status.textContent = text; }
   }
-  function outline(hit, video, frame, kind = 'accepted') {
-    if (hit.points.some(p => !p || !Number.isFinite(p.x) || !Number.isFinite(p.y))) return;
-    const svg = $("scan-outline"), rect = svg.getBoundingClientRect();
-    const points = ARScanFeedback.map(hit.points, frame, video.getBoundingClientRect(), rect, getComputedStyle(video).objectFit);
-    const polygon = document.createElementNS('http://www.w3.org/2000/svg','polygon');
-    svg.setAttribute('viewBox','0 0 ' + rect.width + ' ' + rect.height); polygon.setAttribute('points',points.map(p=>p.x+','+p.y).join(' ')); polygon.dataset.kind=kind;
-    // A short-lived acknowledgement of a decoded frame, never a tracked world pose.
-    svg.append(polygon); setTimeout(()=>polygon.remove(),750);
+  function outline(hit, video, frame, kind = 'accepted', key = '') {
+    if(hit.points.some(p=>!p||!Number.isFinite(p.x)||!Number.isFinite(p.y)))return;
+    qrOverlay.hit(hit.points,frame,kind,key,hit.at);
   }
-  $("sound").onclick = async () => {
-    try { if (!audioContext) { const Audio = window.AudioContext || window.webkitAudioContext; if (!Audio) throw new Error('Звук недоступен'); audioContext = new Audio(); } await audioContext.resume(); soundEnabled = !soundEnabled; }
-    catch (_) { soundEnabled = false; notice('Звук недоступен. Подтверждение остаётся на экране.','other'); }
-    $("sound").setAttribute('aria-pressed',String(soundEnabled)); $("sound").textContent = soundEnabled ? 'Звук вкл.' : 'Звук выкл.';
-    if (soundEnabled) cue();
-  };
-  $("open-file").onclick = () => $("scene-file").click();
   window.addEventListener('resize', () => clearFeedback());
   function resetAcceptance(source = null) { report.acceptance = { source, cameraQrRead: false, integrityVerified: false, usdzCreated: false,
-    quickLookRequested: false, webxrRequested: false, webxrPlaced: false, actualAR: "owner verification required", realRevitProvenance: "owner verification required" }; }
+    autoARAttempted: false, glbCreated: false, quickLookRequested: false, webxrRequested: false, webxrPlaced: false, actualAR: "owner verification required", realRevitProvenance: "owner verification required" }; }
   function dispose(group) { if (!group) return; group.traverse(o => { o.geometry?.dispose(); if (Array.isArray(o.material)) o.material.forEach(m => m.dispose()); else o.material?.dispose(); }); group.removeFromParent(); }
   function clearModel() {
-    if (xrView.active) xrView.end().catch(error => log("webxr-end-error", {message:error.message}));
-    $("webxr-open").hidden = true; $("ar-support").hidden = true;
-    model?.holder?.removeFromParent(); dispose(model?.group); model = null;
-    if (usdzUrl) URL.revokeObjectURL(usdzUrl); usdzUrl = null; ui.look.hidden = true; ui.look.removeAttribute("href");
-    $("save-model").hidden = true; $("save-model").removeAttribute("href"); ui.dot.hidden = true;
+    modeTicket++; objectView.end(); const ended = xrView.active ? xrView.end().catch(error => log("webxr-end-error",{message:error.message})) : Promise.resolve();
+    $("webxr-open").hidden = true; $("mode-switch").hidden = true; $("share-wrap").hidden = true;
+    $("marker-view").hidden = true; $("share-menu").hidden = true; $("share").setAttribute("aria-expanded","false");
+    model?.holder?.removeFromParent(); dispose(model?.group); model = null; files = null;
+    if (usdzUrl) URL.revokeObjectURL(usdzUrl); usdzUrl = null; ui.look.hidden = true; ui.look.removeAttribute("href"); ui.dot.hidden = true;
+    return ended;
   }
-  function newSheet() {
-    blockedHash = (collecting && !meshFailed ? collector.identity?.hash : null) || acceptedHash || blockedHash;
-    blockedLegacy = model?.data.payload || blockedLegacy; inputTicket = null;
-    blockedLegacyParts = new Set([...acceptedLegacyParts,...pendingLegacyParts,...parts.map(p=>p.payload)]);
-    acceptedLegacyParts.clear(); pendingLegacyParts.clear();
-    generation++; loading = null; collector.reset(); collecting = false; verifying = false; importing = false; acceptedHash = null; meshFailed = false; parts = [];
-    clearModel(); clearFeedback(true); report.scene = null; resetAcceptance(); report.scan = { accepted: 0, duplicates: 0, frames: 0 };
-    history.replaceState(null, "", location.pathname + location.search); $("scene-file").value = ""; $("scene-file").disabled = false;
-    ui.start.disabled = false; $("new-sheet").hidden = true; ui.title.textContent = "AR Style"; ui.sheet.textContent = "Новый лист";
-    ui.status.textContent = "Прежняя модель сброшена. Наведите камеру на QR нового листа."; log("new-sheet");
-    $("intro").textContent = "Наведите камеру на QR нового листа. Уже принятый лист повторно не загружается.";
-    if (ownedStream && !suspended) startScanning($("arjs-video"));
+  async function newSheet() {
+    const ticket = ++generation; loading = null; collector.reset(); collecting = false; verifying = false;
+    acceptedHash = blockedHash = blockedLegacy = null; meshFailed = false; parts = [];
+    acceptedLegacyParts.clear(); pendingLegacyParts.clear(); blockedLegacyParts.clear();
+    const ended = clearModel(); clearFeedback(true); report.scene = null; resetAcceptance(); report.scan = {accepted:0,duplicates:0,frames:0};
+    mode = "scan"; ui.body.classList.remove("xr","object"); $("xr-controls").hidden = true;
+    ui.start.disabled = false; ui.title.textContent = "AR Viewer"; ui.sheet.textContent = "";
+    ui.status.textContent = ""; delete ui.status.dataset.error;
+    history.replaceState(null,"",location.pathname+location.search); log("new-sheet");
+    await ended; if (ticket !== generation || document.hidden) return;
+    if (ownedStream && !suspended) { showCameraMode(); startScanning(cameraVideo()); } else startCamera();
   }
 
   if (!window.AFRAME || !AFRAME.systems.arjs) {
@@ -98,47 +78,94 @@
     return;
   }
   const THREE = AFRAME.THREE;
-  const xrView = ARWebXR.create({ THREE, overlay: $("ui"), emit: (state, detail) => {
-    log("webxr-" + state, detail);
-    if (state === "ended") {
-      ui.body.classList.remove("xr"); $("xr-controls").hidden = true;
-      ui.start.disabled = false; $("open-file").disabled = false; $("new-sheet").disabled = false;
-      refreshAr(); ui.status.textContent = model ? "AR закрыт. Модель сохранена; можно открыть её снова или выбрать новый лист." : "Откройте камеру и считайте новый лист.";
+  const objectView = ARObjectView.create({THREE,container:document.body});
+  const xrView = ARWebXR.create({THREE,overlay:$("ui"),emit:(state,detail)=>{
+    log("webxr-"+state,detail);
+    if(state === "ended") {
+      ui.body.classList.remove("xr"); $("xr-controls").hidden=true;
+      if(mode === "xr") {mode="ready"; refreshAr(); ui.status.textContent="";}
       return;
     }
-    const text = { requesting:"Запуск AR…", searching:"Медленно направьте телефон на стол или пол. Найдите круг и коснитесь экрана.", surface:"Поверхность найдена. Коснитесь экрана, чтобы разместить модель.", placed:"Модель размещена. Можно обойти её. Для переноса нажмите «Разместить заново».", "reference-reset":"Система координат AR изменилась. Найдите поверхность и разместите модель заново.", "tracking-lost":"Отслеживание потеряно. Медленно верните камеру к знакомой области; модель временно скрыта." };
-    if (text[state]) ui.status.textContent = text[state];
-    if (state === "placed") report.acceptance.webxrPlaced = true;
-    if (state === "error") ui.status.textContent = "Ошибка AR: " + detail.message;
+    const text={requesting:"Запуск AR…",searching:"Найдите поверхность",surface:"Коснитесь, чтобы разместить",placed:"",'reference-reset':"Разместите модель заново",'tracking-lost':"Отслеживание потеряно"};
+    if(text[state] !== undefined) ui.status.textContent=text[state];
+    if(state === "placed") report.acceptance.webxrPlaced=true;
+    if(state === "error") notice("Ошибка AR: "+detail.message,'error');
   }});
-  function refreshAr() {
-    $("webxr-open").hidden = !model || quickLook || !xrSupported;
-    $("ar-support").hidden = !model || quickLook;
-    if (model && !quickLook) $("ar-support").textContent = xrChecking ? "Проверка поддержки AR…" : xrSupported
-      ? "AR на поверхности · модель из QR · размер просмотра настраивается при размещении."
-      : "AR недоступен в этом браузере. На Android используйте Chrome на устройстве с ARCore и включёнными Google Play Services for AR. Модель восстановлена; это ещё не AR-просмотр.";
+  const xrReady = ARWebXR.supported().then(value=>{xrSupported=value;xrChecking=false;report.capabilities={quickLook,immersiveAR:value};refreshAr();});
+  function refreshAr(){
+    ui.look.hidden=!model||!quickLook||!usdzUrl;
+    $("webxr-open").hidden=!model||quickLook||!xrSupported||mode==='xr'||mode==='object';
+    $("mode-switch").hidden=!model||quickLook;
+    $("mode-ar").disabled=!xrSupported; $("mode-ar").setAttribute('aria-pressed',String(mode==='xr'));
+    $("mode-3d").setAttribute('aria-pressed',String(mode==='object'));
+    $("share-wrap").hidden=!files; $("marker-view").hidden=!diagnostic||!model||model.data.kind==='mesh';
+    ui.start.hidden=!!model;
+    if(model&&!quickLook&&!xrChecking&&!xrSupported&&mode==='ready')ui.status.textContent='AR недоступен на этом устройстве. Доступен 3D.';
   }
-  ARWebXR.supported().then(value => { xrSupported = value; xrChecking = false; report.capabilities = { quickLook, immersiveAR: value }; refreshAr(); });
-  $("webxr-open").onclick = async () => {
-    if (!model || xrView.active) return;
-    // Release the QR getUserMedia stream synchronously before requesting the system AR camera.
-    pauseCamera(); ui.start.disabled = true; $("open-file").disabled = true; $("new-sheet").disabled = true;
-    ui.body.classList.add("xr"); $("xr-controls").hidden = false;
-    report.acceptance.webxrRequested = true;
-    try { await xrView.start(model.group); }
-    catch (error) {
-      ui.body.classList.remove("xr"); $("xr-controls").hidden = true;
-      ui.start.disabled = false; $("open-file").disabled = false; $("new-sheet").disabled = false;
-      log("webxr-request-failed", {name:error.name,message:error.message});
-      ui.status.textContent = "AR не запущен. Проверьте разрешение AR, поддержку ARCore и Google Play Services for AR. Можно повторить. " + error.message;
+  async function openAR(automatic=false){
+    if(!model) return;
+    const ticket=++modeTicket, current=model;
+    report.acceptance.autoARAttempted ||= automatic; log('ar-attempt',{automatic});
+    if(quickLook){
+      // The real rel=ar anchor stays in the DOM with one IMG. No gesture bypass or synthetic AR success.
+      if(automatic)ui.look.click(); return;
     }
+    if(!xrSupported){await xrReady;if(ticket!==modeTicket||model!==current)return;}
+    if(!xrSupported){refreshAr();return;}
+    if(xrView.active)return;
+    objectView.end();pauseCamera();mode='xr';ui.body.classList.remove('object');ui.body.classList.add('xr');$("xr-controls").hidden=false;refreshAr();
+    report.acceptance.webxrRequested=true;
+    try {await xrView.start(current.group);}
+    catch(error){
+      if(ticket!==modeTicket||model!==current)return;
+      mode='ready';ui.body.classList.remove('xr');$("xr-controls").hidden=true;refreshAr();
+      ui.status.textContent='';log('webxr-request-failed',{name:error.name,message:error.message,automatic});
+      if(!automatic)notice('AR не запущен. Проверьте разрешение и ARCore.','error');
+    }
+  }
+  async function open3D(){
+    if(!model)return;const ticket=++modeTicket,current=model;pauseCamera();
+    if(xrView.active)await xrView.end();
+    if(ticket!==modeTicket||model!==current)return;
+    objectView.start(current.group);mode='object';ui.body.classList.remove('xr');ui.body.classList.add('object');$("xr-controls").hidden=true;ui.status.textContent='';refreshAr();log('object-mode');
+  }
+  $("webxr-open").onclick=()=>openAR(false); $("mode-ar").onclick=()=>openAR(false); $("mode-3d").onclick=()=>open3D().catch(e=>notice(e.message,'error'));
+  $("xr-reset").onclick=()=>xrView.reset();
+  $("xr-size").oninput=e=>{const cm=Number(e.target.value);xrView.setWidth(cm/100);$("xr-size-label").textContent=cm+' см';};
+  $("ui").addEventListener('beforexrselect',e=>{if(e.target.closest('button,a,input,label,summary'))e.preventDefault();});
+  function presentModel(preparedUSDZ=null){
+    if(ownedStream||opening)pauseCamera();
+    const meshes=ARModelFiles.triangles(model.group,THREE);
+    const usdz=preparedUSDZ||new Blob([ARUsdz.build(meshes)],{type:'model/vnd.usdz+zip'});
+    if(usdz.size>32*1024*1024)throw Error('USDZ превышает 32 МиБ; модель не обрезана');
+    const glb=new Blob([ARModelFiles.glb(meshes)],{type:'model/gltf-binary'});
+    files={usdz:new File([usdz],'Exporto-AR.usdz',{type:'model/vnd.usdz+zip'}),glb:new File([glb],'Exporto-AR.glb',{type:'model/gltf-binary'})};
+    if(usdzUrl)URL.revokeObjectURL(usdzUrl);usdzUrl=URL.createObjectURL(usdz);ui.look.href=usdzUrl;
+    mode='ready';ui.status.textContent='';delete ui.status.dataset.error;refreshAr();
+    report.acceptance.usdzCreated=true;report.acceptance.glbCreated=true;
+    if(report.scene)Object.assign(report.scene,{usdzBytes:usdz.size,glbBytes:glb.size});
+    log('model-files-ready',{usdzBytes:usdz.size,glbBytes:glb.size});
+    // AR-first: never initialize the ordinary 3D renderer here. Browser policy may require the visible CTA.
+    openAR(true).catch(e=>{log('auto-ar-error',{message:e.message});refreshAr();});
+  }
+  $("share").onclick=()=>{const menu=$("share-menu");menu.hidden=!menu.hidden;$("share").setAttribute('aria-expanded',String(!menu.hidden));};
+  async function saveModel(format){
+    const file=files?.[format];if(!file)return;
+    $("share-menu").hidden=true;$("share").setAttribute('aria-expanded','false');
+    try{if(navigator.canShare?.({files:[file]})){await navigator.share({files:[file]});log('model-shared',{format,bytes:file.size});return;}}
+    catch(error){if(error.name==='AbortError')return;log('share-fallback',{format,name:error.name});}
+    const url=URL.createObjectURL(file),a=document.createElement('a');a.href=url;a.download=file.name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);log('model-download',{format,bytes:file.size});
+  }
+  $("share-usdz").onclick=()=>saveModel('usdz');$("share-glb").onclick=()=>saveModel('glb');
+  if(quickLook)$("share-menu").prepend($("share-usdz"));else $("share-menu").prepend($("share-glb"));
+  document.addEventListener('click',e=>{if(!e.target.closest('#share-wrap')){$("share-menu").hidden=true;$("share").setAttribute('aria-expanded','false');}});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'){$("share-menu").hidden=true;$("share").setAttribute('aria-expanded','false');$("share").focus();}});
+  $("marker-view").onclick=async()=>{
+    if(!model||model.data.kind==='mesh')return;
+    const ticket=++modeTicket,current=model;objectView.end();if(xrView.active)await xrView.end();
+    if(ticket!==modeTicket||model!==current)return;
+    ui.body.classList.remove('xr','object');$("xr-controls").hidden=true;mode='marker';startCamera();
   };
-  $("xr-exit").onclick = () => xrView.end().catch(error => { ui.status.textContent = error.message; });
-  $("xr-reset").onclick = () => xrView.reset();
-  $("xr-size").oninput = event => { const cm = Number(event.target.value); xrView.setWidth(cm / 100); $("xr-size-label").textContent = cm + " см"; };
-  // DOM controls must never also trigger WebXR's scene-placement select event.
-  $("ui").addEventListener("beforexrselect", event => { if (event.target.closest("button,a,input,label,summary")) event.preventDefault(); });
-
 
   // ---------- model ----------
 
@@ -205,18 +232,7 @@
   }
 
   function usdzFor(group) {
-    // Metres relative to the model itself: the marker pose and the 1:N holder do not go into Quick Look.
-    group.updateMatrixWorld(true);
-    const local = group.matrixWorld.clone().invert(), meshes = [];
-    group.traverse(o => {
-      if (!o.isMesh) return;
-      const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
-      g.applyMatrix4(local.clone().multiply(o.matrixWorld));
-      meshes.push({ positions: g.attributes.position.array, color: o.userData.rgb,
-        linearColor: o.userData.linearColor, opacity: o.userData.opacity, precisePositions: o.userData.precisePositions });
-      g.dispose();
-    });
-    return new Blob([ARUsdz.build(meshes)], { type: "model/vnd.usdz+zip" });
+    return new Blob([ARUsdz.build(ARModelFiles.triangles(group,THREE))],{type:'model/vnd.usdz+zip'});
   }
 
   // AR5 parts of the model being collected, by id; a part of another model starts over.
@@ -224,10 +240,9 @@
 
   async function ingestMesh(bytes, source) {
     const packet = qrGeometry.packet(bytes);
-    if (source === "html-file" && packet.hash === blockedHash) blockedHash = null; // Explicit file selection may retry the same model.
     if (packet.hash === blockedHash) { notice('QR прежнего листа. Наведите камеру на новый лист.','duplicate','other'); return { state: 'blocked' }; }
     if (packet.hash === acceptedHash) return { state: 'duplicate' };
-    if (verifying || (importing && source === "camera")) return { state: 'busy' };
+    if (verifying) return { state: 'busy' };
     const p = collector.add(bytes);
     if (!collecting) {
       generation++; loading = null; clearModel(); parts = []; collecting = true; blockedHash = null; meshFailed = false;
@@ -238,15 +253,14 @@
     $("new-sheet").hidden = false;
     if (p.duplicate) { report.scan.duplicates++; notice('QR ' + (packet.index + 1) + ' уже считан','duplicate'); return { state: 'duplicate' }; }
     report.scan.accepted++;
-    notice(source === 'camera' ? 'QR ' + (packet.index + 1) + ' принят' : 'HTML · часть ' + (packet.index + 1) + ' принята');
-    if (source === 'camera') cue();
     showProgress(p.count, Array.from(collector.parts.keys(), i => i + 1), p.complete ? 'verifying' : 'collecting');
     report.acceptance.source = report.acceptance.source && report.acceptance.source !== source ? "mixed-input" : source;
     if (source === "camera") report.acceptance.cameraQrRead = true;
-    ui.title.textContent = `Части ${p.received} из ${p.count}`; ui.sheet.textContent = "Геометрия Exporto";
-    if (p.complete) ui.status.textContent = "Все части получены. Проверяю целостность и восстанавливаю модель…";
+    ui.title.textContent = "AR Viewer"; ui.sheet.textContent = "";
+    if (p.complete) ui.status.textContent = "Восстановление…";
     log("qrl-part", { version: packet.version, hash: p.hash, index: packet.index, count: p.count, source, elapsedMs: Math.round(performance.now() - scanStartedAt) });
     if (!p.complete) return { state: "accepted" };
+    if(p.complete) pauseCamera();
     const ticket = generation; verifying = true; let group = null, blob = null;
     try {
       const decoded = await qrGeometry.restore(collector.join()); if (ticket !== generation) return;
@@ -257,31 +271,29 @@
       // CBX1 has no paper/Hiro placement contract: don't invent 1:N from exportScale.
       model = { data: { kind: "mesh", identity: decoded.sha256, exportScale: decoded.scale, codec: decoded.codec }, group, holder: null };
       group = null; acceptedHash = decoded.sha256; collecting = false;
-      usdzUrl = URL.createObjectURL(blob); ui.look.href = usdzUrl; ui.look.hidden = !quickLook;
-      $("save-model").href = usdzUrl; $("save-model").hidden = false;
       report.scene = { packetVersion: packet.version, codec: decoded.codec, decodeMilliseconds: decoded.decodeMilliseconds, sha256: decoded.sha256, parts: decoded.qrCount, compressedBytes: decoded.compressedBytes, rawBytes: decoded.rawBytes,
         usdzBytes: blob.size, meshes: decoded.meshes.length, vertices: decoded.vertices, triangles: decoded.triangles,
         extentMeters: decoded.extent, exportScale: decoded.scale, originMeters: decoded.originMeters, excluded: decoded.excluded };
       report.acceptance.integrityVerified = true; report.acceptance.usdzCreated = true;
       ui.title.textContent = "Модель Exporto"; ui.sheet.textContent = `${decoded.qrCount}/${decoded.qrCount} · SHA-256 OK`;
-      ui.status.textContent = quickLook ? "Модель готова. Откройте Quick Look → AR и разместите на поверхности. Привязка к чертежу не задана." : "Модель восстановлена. Для размещения на поверхности нажмите «Открыть в AR», если устройство поддерживает AR.";
-      $("intro").textContent = "Модель восстановлена из QR. AR использует поверхность; положение и масштаб относительно чертежа этим экспортом не заданы.";
+      ui.status.textContent = "";
       $("scene-info").textContent = `${decoded.meshes.length} мешей · ${decoded.triangles} треугольников · ${decoded.extent.map(x => x.toFixed(3)).join(" × ")} м. ${decoded.excluded.join("; ")}`;
       showProgress(decoded.qrCount, Array.from({length:decoded.qrCount},(_,i)=>i+1), 'ready');
-      notice('Все QR проверены · модель готова'); if (source === 'camera') cue(true);
-      clearInterval(scanTimer); scanTimer = 0; $("scan-guide").hidden = true;
+
+      clearInterval(scanTimer); scanTimer = 0;
       refreshAr();
       ui.reticle.hidden = true; log("mesh-ready", { hash: decoded.sha256, triangles: decoded.triangles });
+      verifying=false;presentModel(blob);
     } catch (error) {
       dispose(group); if (ticket !== generation) return;
-      meshFailed = true; clearModel(); ui.status.textContent = error.message + ". Нажмите «Новый лист» для повтора."; log("mesh-error", { message: error.message });
+      meshFailed = true; clearModel(); notice(error.message,"error"); log("mesh-error", { message: error.message });
     } finally { if (ticket === generation) verifying = false; }
     return { state: meshFailed ? "error" : "accepted" };
   }
 
   async function load(payload, announce, source = "url") {
     let data = ARCubeData.parse(payload);
-    if (data.payload === blockedLegacy || blockedLegacyParts.has(data.payload) || acceptedLegacyParts.has(data.payload) || pendingLegacyParts.has(data.payload) || importing) return;
+    if (data.payload === blockedLegacy || blockedLegacyParts.has(data.payload) || acceptedLegacyParts.has(data.payload) || pendingLegacyParts.has(data.payload)) return;
     let receivedParts = [];
     const partInfo = data.kind === "part" ? { number: data.part, count: data.of } : null;
     if (data.kind !== "part") { parts = []; pendingLegacyParts.clear(); }
@@ -289,7 +301,7 @@
     if (collecting || model?.data.kind === "mesh" || verifying) {
       generation++; loading = null; collector.reset(); collecting = false; verifying = false; acceptedHash = null; clearModel();
       report.scene = null; resetAcceptance();
-      $("new-sheet").hidden = true;
+      $("new-sheet").hidden = false;
     }
     if (data.kind === "part") {
       if (parts.length && parts[0].id !== data.id) parts = [];
@@ -298,14 +310,8 @@
       if (parts.some(p => p.part === data.part)) { notice('QR ' + data.part + ' уже считан','duplicate'); return; }
       parts.push(data);
       showProgress(data.of, parts.map(p=>p.part));
-      notice('QR ' + data.part + ' принят');
       const joined = ARCubeData.join(parts);
       if (!joined) {
-        const have = parts.map(p => p.part).sort((a, b) => a - b);
-        ui.title.textContent = `Части ${have.length} из ${data.of}`;
-        ui.sheet.textContent = "Наведите камеру на остальные QR: " +
-          Array.from({ length: data.of }, (_, i) => i + 1).filter(n => !have.includes(n)).join(", ");
-        toast(`Часть ${data.part} из ${data.of} · ${have.length}/${data.of}`);
         return;
       }
       receivedParts = parts.map(p=>p.payload); pendingLegacyParts = new Set(receivedParts); parts = [];
@@ -313,6 +319,7 @@
     }
     if (data.payload === blockedLegacy) return;
     if (model && model.data.payload === data.payload) return;
+    pauseCamera();
     const ticket = loading = {};
     let group;
     try {
@@ -336,29 +343,16 @@
     ui.dot.style.background = rgbCss(rgb);
     ui.dot.hidden = false;
     if (partInfo) showProgress(partInfo.count, Array.from({length:partInfo.count},(_,i)=>i+1), 'ready');
-    else { $("part-progress").hidden = true; $("scan-event").hidden = true; }
+    else { $("part-progress").hidden = true; }
     ui.title.textContent = ARCubeData.title(data);
     ui.sheet.textContent = data.sheet ? "Лист " + data.sheet : "Модель из QR";
-    $("intro").textContent = legacyIntro;
     ui.status.textContent = scene && !suspended ? "Наведите камеру на маркер Hiro" : "Откройте камеру и наведите её на маркер Hiro. Другие QR можно считывать, не выходя.";
-    if (quickLook) {
-      if (usdzUrl) URL.revokeObjectURL(usdzUrl);
-      usdzUrl = URL.createObjectURL(usdzFor(group));
-      ui.look.href = usdzUrl;
-      ui.look.hidden = false;
-    }
     refreshAr();
-    if (announce) toast((data.sheet ? "Лист " + data.sheet + " · " : "") + ARCubeData.title(data));
+    pauseCamera();
+    try{presentModel();}
+    catch(error){clearModel();notice(error.message,'error');log('model-files-error',{message:error.message});}
   }
-
-  function toast(text) {
-    if (toast.last === text && Date.now() - toast.lastAt < 2200) return;
-    toast.last = text; toast.lastAt = Date.now();
-    ui.toast.textContent = text;
-    ui.toast.classList.add("on");
-    clearTimeout(toast.timer);
-    toast.timer = setTimeout(() => ui.toast.classList.remove("on"), 2200);
-  }
+  function toast(text){notice(text,'error');}
 
   // ---------- smoothing ----------
 
@@ -391,7 +385,7 @@
       if (o.visible !== shown) {
         o.visible = shown;
         ui.reticle.hidden = shown;
-        ui.status.textContent = shown ? "Маркер найден" : "Наведите камеру на маркер Hiro или на QR другого листа";
+        if(ui.status.dataset.error!=='true')ui.status.textContent = shown ? "Маркер найден" : "Наведите камеру на маркер Hiro или на QR другого листа";
       }
     }
   });
@@ -400,22 +394,42 @@
 
   let cameraEpoch = 0, ownedStream = null, opening = false, videoSourceURL = null;
   const wiredVideos = new WeakSet();
+  const preview = $("camera-preview");
+  function cameraVideo() { return mode === 'marker' ? $("arjs-video") : preview; }
+  function cameraDiagnostics() {
+    if (!ownedStream) return;
+    const detail = {...ARCamera.snapshot(ownedStream.getVideoTracks()[0]), preview: ARCamera.preview(preview), display:mode==='marker'?'hiro-arjs':'qr-source'};
+    report.camera = detail;
+    $("camera-info").textContent = JSON.stringify(detail, null, 2);
+    log('camera-display',detail);
+  }
+  function showCameraMode() {
+    const hiro = mode === 'marker';
+    ui.body.classList.toggle('hiro',hiro); preview.hidden = hiro;
+    if(!hiro&&preview.srcObject&&preview.paused)preview.play().catch(()=>{});
+    if (scene) { scene.style.display = hiro ? '' : 'none'; if (hiro) scene.play(); else scene.pause(); }
+    const video = $("arjs-video"); if (video) video.style.display = hiro ? '' : 'none';
+    cameraDiagnostics();
+    if(ownedStream&&ARCamera.snapshot(ownedStream.getVideoTracks()[0]).settings.facingMode==='user')notice('Браузер выбрал переднюю камеру: задняя камера недоступна.','error');
+  }
+  preview.addEventListener('loadeddata',()=>videoReady(preview));
+  preview.addEventListener('resize',cameraDiagnostics);
+  window.addEventListener('resize',cameraDiagnostics);
   function stopCamera() {
-    cameraEpoch++; clearFeedback(); opening = false; clearInterval(scanTimer); scanTimer = 0;
+    cameraEpoch++; qrOverlay.stop(); clearFeedback(); opening = false; clearInterval(scanTimer); scanTimer = 0;
     ownedStream?.getTracks().forEach(track => track.stop()); ownedStream = null;
-    document.querySelectorAll("video").forEach(video => {
-      if (video.srcObject && video.srcObject.getTracks) video.srcObject.getTracks().forEach(track => track.stop());
-    });
+    preview.pause(); preview.srcObject = null; preview.hidden = true;
     log("camera-stop");
   }
 
-  // QR is read from the same video AR.js tracks: no second camera, no leaving the AR screen.
+  // QR uses the uncropped preview. Hiro uses the same owned stream through the existing AR.js bridge.
   function startScanning(video) {
     if (typeof jsQR !== "function" || !video) return;
+    qrOverlay.start(video);
     const canvas = document.createElement("canvas"), ctx = canvas.getContext("2d", { willReadFrequently: true });
     let busy = false, region = 1; clearInterval(scanTimer);
     scanTimer = setInterval(async () => {
-      if (busy || suspended || importing || verifying || model?.data.kind === 'mesh' || document.hidden || !video.videoWidth || !ctx) return;
+      if (busy || suspended || verifying || (model && mode!=='marker') || document.hidden || !video.videoWidth || !ctx) return;
       busy = true; const batch = scanBatch, epoch = cameraEpoch;
       try {
         const factor = Math.min(1, 1280 / video.videoWidth);
@@ -429,16 +443,21 @@
           const next = hits.next(); if (next.done) break;
           const hit = next.value;
           if (!hit.qr) { await new Promise(resolve => setTimeout(resolve,0)); continue; }
+          hit.at=frameAt;
           const qr=hit.qr, raw=Uint8Array.from(qr.binaryData);
+          // Detection/tracking do not read bytes. Only this unchanged decoder supplies exact binaryData.
+          const key=Array.from(raw).join(',');
+          if(performance.now()-frameAt<400)outline(hit,video,image,'decoded',key);
           report.scan.decoded = (report.scan.decoded || 0) + 1;
           const binary=raw.length>=4 && raw[0]===81 && raw[1]===82 && raw[2]===76 && (raw[3]===49 || raw[3]===50);
           try {
             if (binary) {
               const result = await ingestMesh(raw, 'camera');
               if (batch !== scanBatch || epoch !== cameraEpoch || suspended) break;
-              if (performance.now() - frameAt < 900) outline(hit, video, image, result?.state === 'blocked' || result?.state === 'error' ? 'other' : 'accepted');
+              if (performance.now() - frameAt < 900) outline(hit, video, image, result?.state === 'blocked' ? 'other' : result?.state === 'error' ? 'rejected' : result?.state === 'busy' ? 'decoded' : 'accepted',key);
               if (model?.data.kind === 'mesh') break;
             } else if (qr.data === 'https://mookcumka.github.io/ar-viewer/') {
+              outline(hit,video,image,'other',key);
               if (!collecting && !model) notice('Это QR открытия просмотрщика. Наведите камеру на QR модели.','duplicate','other');
             } else {
               const data = ARCubeData.fromUrl(qr.data);
@@ -448,15 +467,11 @@
               if (batch !== scanBatch || epoch !== cameraEpoch || suspended) break;
               if (duplicate) notice(data.kind === 'part' ? 'QR ' + data.part + ' уже считан' : 'QR уже считан','duplicate');
               if (blocked) notice('QR прежнего листа. Наведите камеру на новый лист.','duplicate','other');
-              if (performance.now() - frameAt < 900) outline(hit,video,image,blocked ? 'other' : 'accepted');
+              if (performance.now() - frameAt < 900) outline(hit,video,image,blocked ? 'other' : 'accepted',key);
             }
-          } catch (error) { report.scan.rejected = (report.scan.rejected || 0) + 1; notice(error.message,'duplicate','other'); }
+          } catch (error) { if(batch===scanBatch&&epoch===cameraEpoch)outline(hit,video,image,'rejected',key); report.scan.rejected = (report.scan.rejected || 0) + 1; notice(error.message,'duplicate','other'); }
           // Keep controls responsive; pausing/resetting cancels the remaining decoded-frame work.
           await new Promise(resolve => setTimeout(resolve,0));
-        }
-        if (batch === scanBatch && !model && !verifying && performance.now() - lastNoticeAt > 4500) {
-          $("scan-guide").hidden = false;
-          $("scan-guide").textContent = 'Если QR не читается: направьте рамку на один непринятый код целиком. Если он размыт вблизи — немного отодвиньте телефон.';
         }
       } catch (error) { log('scan-error',{message:error.message}); }
       finally { busy = false; }
@@ -464,20 +479,38 @@
   }
 
   async function startCamera() {
-    if (opening || ownedStream || importing || verifying) return;
+    if (opening || ownedStream || verifying) return;
+    delete ui.status.dataset.error;
     const ticket = ++cameraEpoch; opening = true; suspended = false;
     ui.start.hidden = true;
-    ui.stop.hidden = false;
+
     ui.body.classList.add("live");
     ui.status.textContent = "Подключение камеры…";
     let stream;
-    try { stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 960 } } }); }
+    let supported = {};
+    try { supported = navigator.mediaDevices?.getSupportedConstraints?.() || {}; } catch (_) { /* Preserve system defaults when capability probing is unavailable. */ }
+    try { stream = await navigator.mediaDevices.getUserMedia(ARCamera.request(supported)); }
     catch (error) { if (ticket === cameraEpoch) { pauseCamera(); ui.status.textContent = "Не удалось открыть камеру. Разрешите доступ в настройках браузера и повторите."; } return; }
     if (ticket !== cameraEpoch || document.hidden) { stream.getTracks().forEach(t => t.stop()); return; }
-    ownedStream = stream; opening = false; scanStartedAt = performance.now();
-    const settings = stream.getVideoTracks()[0]?.getSettings() || {};
-    log("camera-start",{width:settings.width,height:settings.height,frameRate:settings.frameRate,facingMode:settings.facingMode});
-    $("scan-guide").hidden = false;
+    ownedStream = stream; scanStartedAt = performance.now();
+    const track = stream.getVideoTracks()[0];
+    log('camera-start',{...ARCamera.snapshot(track),supportedControls:{focusMode:!!supported.focusMode,zoom:!!supported.zoom,resizeMode:!!supported.resizeMode}});
+    await ARCamera.configure(track,supported,log,()=>ticket===cameraEpoch&&ownedStream===stream);
+    if(ticket!==cameraEpoch||ownedStream!==stream||document.hidden) { stream.getTracks().forEach(t=>t.stop()); return; }
+    opening = false;
+    if(track?.readyState==='ended'){pauseCamera();notice('Камера отключена. Откройте её снова.','error');return;}
+    for (const event of ['mute','unmute']) track?.addEventListener(event,()=>{ if(ownedStream===stream){log('camera-'+event,ARCamera.snapshot(track));cameraDiagnostics();} });
+    track?.addEventListener('ended',()=>{if(ownedStream===stream){pauseCamera();notice('Камера отключена. Откройте её снова.','error');}});
+    if(ARCamera.snapshot(track).settings.facingMode==='user')notice('Браузер выбрал переднюю камеру: задняя камера недоступна.','error');
+    preview.srcObject = stream; showCameraMode();
+    preview.play().catch(error=>{if(ownedStream===stream){pauseCamera();toast(error.message);}});
+    // AR.js retains its original calibration/crop only for Hiro. It never owns QR-preview layout.
+    if(mode!=='marker')return;
+    attachMarker(stream,ticket);
+  }
+
+  function attachMarker(stream,ticket) {
+
     if (!scene) {
     scene = document.createElement("a-scene");
     videoSourceURL = URL.createObjectURL(new Blob([], { type: "video/mp4" }));
@@ -502,15 +535,12 @@
     scene.appendChild(marker);
     scene.appendChild(follower);
     scene.appendChild(document.createElement("a-entity")).setAttribute("camera", "");
-    window.addEventListener("camera-error", () => {
-      pauseCamera();
-      ui.status.textContent = "Не удалось открыть камеру. Разрешите доступ в настройках браузера и перезагрузите страницу.";
-    }, { once: true });
+
     ui.reticle.hidden = false;
     ui.status.textContent = model ? "Наведите камеру на маркер Hiro" : "Наведите камеру на QR листа";
     document.body.appendChild(scene);
     }
-    scene.style.display = ""; scene.play();
+    showCameraMode();
     const activeScene = scene;
     const attach = () => {
       if (ticket !== cameraEpoch || ownedStream !== stream || scene !== activeScene) return;
@@ -533,9 +563,10 @@
 
   function videoReady(video) {
     if (document.hidden || suspended || !ownedStream || video?.srcObject !== ownedStream) return;
-    ui.status.textContent = model?.data.kind === "mesh" ? "Модель готова. Нажмите «Открыть в AR», если устройство поддерживает AR." : collecting ? "Считайте оставшиеся QR этого листа" : model ? "Наведите камеру на маркер Hiro" : "Наведите камеру на QR листа";
+    if(ui.status.dataset.error!=='true')ui.status.textContent = model?.data.kind === "mesh" ? "Модель готова. Нажмите «Открыть в AR», если устройство поддерживает AR." : collecting ? "Считайте оставшиеся QR этого листа" : model ? "Наведите камеру на маркер Hiro" : "Наведите камеру на QR листа";
     ui.reticle.hidden = model?.data.kind === "mesh";
-    startScanning(video);
+    showCameraMode();
+    startScanning(cameraVideo());
   }
   window.addEventListener("arjs-video-loaded", event => videoReady(event.detail?.component || $("arjs-video")));
 
@@ -546,36 +577,28 @@
     const source = scene?.systems.arjs?._arSession?.arSource;
     if (source?.domElement) { source.ready = false; source.domElement.pause(); source.domElement.srcObject = null; source.domElement.style.display = "none"; }
     scene?.pause(); if (scene) scene.style.display = "none";
-    ui.body.classList.remove("live"); ui.start.hidden = false; ui.stop.hidden = true; ui.reticle.hidden = true; $("scan-guide").hidden = true;
-    ui.status.textContent = "Камера остановлена. Можно продолжить без перезагрузки.";
+    ui.body.classList.remove("live","hiro"); ui.start.hidden = false; ui.reticle.hidden = true;
+    ui.start.hidden=!!model;ui.status.textContent = "";
   }
-  ui.stop.onclick = pauseCamera;
   // A QR opened from the system camera may reuse this tab and change only the fragment.
   window.addEventListener("hashchange", () => {
     if (!location.hash) return;
     load(location.hash, true).catch(error => toast(error.message));
   });
-  window.addEventListener("pagehide", () => { pauseCamera(); xrView.end().catch(() => {}); });
+  window.addEventListener("pagehide", () => { pauseCamera(); objectView.end(); xrView.end().catch(() => {}); });
+  window.addEventListener('pageshow',()=>{
+    if(model&&mode==='object'&&!objectView.active){try{objectView.start(model.group);}catch(e){mode='ready';ui.body.classList.remove('object');notice(e.message,'error');}}
+    refreshAr();
+  });
   // Reopen explicitly after backgrounding; do not keep the camera running invisibly.
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden && !xrView.active && (scene || opening)) pauseCamera();
+    if (document.hidden && !xrView.active && (ownedStream || opening)) pauseCamera();
   });
 
   $("new-sheet").onclick = newSheet;
   ui.look.addEventListener("click", () => { report.acceptance.quickLookRequested = true; log("quicklook-request"); });
-  $("scene-file").addEventListener("change", async () => {
-    const file = $("scene-file").files[0]; if (!file || importing || verifying) return;
-    const token = inputTicket = {}; importing = true; $("scene-file").disabled = true; ui.start.disabled = true; pauseCamera();
-    $("new-sheet").hidden = false;
-    try {
-      if (file.size > qrGeometry.LIMITS.html) throw new Error("HTML превышает 8 МиБ");
-      const packets = qrGeometry.htmlPackets(await file.text()); if (inputTicket !== token) return;
-      const check = new qrGeometry.Collector(); packets.forEach(p => check.add(p)); check.join();
-      for (const p of packets) { if (inputTicket !== token) return; await ingestMesh(p, "html-file"); }
-    } catch (error) { if (inputTicket === token) { ui.status.textContent = error.message; log("file-error", { message: error.message }); } }
-    finally { if (inputTicket === token) { importing = false; inputTicket = null; $("scene-file").disabled = false; $("scene-file").value = ""; ui.start.disabled = false; } }
-  });
   $("report").onclick = async () => {
+    cameraDiagnostics();
     const file = new File([JSON.stringify({...report, offline: window.AROfflineState || null}, null, 2)], "ARViewer-report.json", { type: "application/json" });
     try { if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file] }); return; } }
     catch (error) { if (error.name === "AbortError") return; }
@@ -592,6 +615,6 @@
   }
   if (!quickLook) ui.look.hidden = true;
   // For the browser test: the current model and its USDZ without Quick Look.
-  window.ARViewer = { version: appVersion, model: () => model, usdz: () => model && usdzFor(model.group) };
+  window.ARViewer = {version:appVersion,model:()=>model,usdz:()=>files?.usdz,glb:()=>files?.glb};
 })();
 

@@ -164,3 +164,11 @@ test("AR5 rejects mixed models, corrupted parts and bad numbering", () => {
 require('./scan-feedback.test.cjs');
 
 require("./version-webxr.test.cjs");
+
+require("./model-files.test.cjs");
+
+require("./camera.test.cjs");
+
+require("./qr-tracker.test.cjs");
+
+require("./qr-overlay.test.cjs");
