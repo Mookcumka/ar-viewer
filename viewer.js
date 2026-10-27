@@ -21,10 +21,13 @@
     acceptance: { source: null, cameraQrRead: false, integrityVerified: false, usdzCreated: false,
       autoARAttempted: false, glbCreated: false, quickLookRequested: false, webxrRequested: false, webxrPlaced: false, actualAR: "owner verification required", realRevitProvenance: "owner verification required" } };
   function log(type, detail = {}) { report.events.push({ type, at: new Date().toISOString(), ...detail }); if (report.events.length > 160) report.events.shift(); }
+  const qrOverlay=ARQrOverlay.create({svg:$("scan-outline"),emit:detail=>{report.tracking=detail;$("tracking-info").textContent=JSON.stringify(detail);},onTargets:count=>{
+    if(mode==='scan'&&ownedStream&&!suspended)ui.reticle.hidden=count>0;
+  }});
   let scanBatch = 0, scanStartedAt = 0;
   let mode = "scan", files = null, modeTicket = 0;
   function clearFeedback(reset = false) {
-    scanBatch++; $("scan-outline").replaceChildren();
+    scanBatch++; qrOverlay.clear();
     if (reset) { $("part-progress").replaceChildren(); $("part-progress").hidden = true; }
   }
   function showProgress(count, have, phase = 'collecting') {
@@ -41,14 +44,9 @@
   function notice(text, kind = 'new', tone = kind) {
     if (kind === 'error') { ui.status.dataset.error = 'true'; ui.status.textContent = text; }
   }
-  function outline(hit, video, frame, kind = 'accepted') {
-    if (hit.points.some(p => !p || !Number.isFinite(p.x) || !Number.isFinite(p.y))) return;
-    const svg = $("scan-outline"), rect = svg.getBoundingClientRect();
-    const points = ARScanFeedback.map(hit.points, frame, video.getBoundingClientRect(), rect, getComputedStyle(video).objectFit);
-    const polygon = document.createElementNS('http://www.w3.org/2000/svg','polygon');
-    svg.setAttribute('viewBox','0 0 ' + rect.width + ' ' + rect.height); polygon.setAttribute('points',points.map(p=>p.x+','+p.y).join(' ')); polygon.dataset.kind=kind;
-    // A short-lived acknowledgement of a decoded frame, never a tracked world pose.
-    svg.append(polygon); setTimeout(()=>polygon.remove(),750);
+  function outline(hit, video, frame, kind = 'accepted', key = '') {
+    if(hit.points.some(p=>!p||!Number.isFinite(p.x)||!Number.isFinite(p.y)))return;
+    qrOverlay.hit(hit.points,frame,kind,key,hit.at);
   }
   window.addEventListener('resize', () => clearFeedback());
   function resetAcceptance(source = null) { report.acceptance = { source, cameraQrRead: false, integrityVerified: false, usdzCreated: false,
@@ -418,7 +416,7 @@
   preview.addEventListener('resize',cameraDiagnostics);
   window.addEventListener('resize',cameraDiagnostics);
   function stopCamera() {
-    cameraEpoch++; clearFeedback(); opening = false; clearInterval(scanTimer); scanTimer = 0;
+    cameraEpoch++; qrOverlay.stop(); clearFeedback(); opening = false; clearInterval(scanTimer); scanTimer = 0;
     ownedStream?.getTracks().forEach(track => track.stop()); ownedStream = null;
     preview.pause(); preview.srcObject = null; preview.hidden = true;
     log("camera-stop");
@@ -427,6 +425,7 @@
   // QR uses the uncropped preview. Hiro uses the same owned stream through the existing AR.js bridge.
   function startScanning(video) {
     if (typeof jsQR !== "function" || !video) return;
+    qrOverlay.start(video);
     const canvas = document.createElement("canvas"), ctx = canvas.getContext("2d", { willReadFrequently: true });
     let busy = false, region = 1; clearInterval(scanTimer);
     scanTimer = setInterval(async () => {
@@ -444,16 +443,21 @@
           const next = hits.next(); if (next.done) break;
           const hit = next.value;
           if (!hit.qr) { await new Promise(resolve => setTimeout(resolve,0)); continue; }
+          hit.at=frameAt;
           const qr=hit.qr, raw=Uint8Array.from(qr.binaryData);
+          // Detection/tracking do not read bytes. Only this unchanged decoder supplies exact binaryData.
+          const key=Array.from(raw).join(',');
+          if(performance.now()-frameAt<400)outline(hit,video,image,'decoded',key);
           report.scan.decoded = (report.scan.decoded || 0) + 1;
           const binary=raw.length>=4 && raw[0]===81 && raw[1]===82 && raw[2]===76 && (raw[3]===49 || raw[3]===50);
           try {
             if (binary) {
               const result = await ingestMesh(raw, 'camera');
               if (batch !== scanBatch || epoch !== cameraEpoch || suspended) break;
-              if (performance.now() - frameAt < 900) outline(hit, video, image, result?.state === 'blocked' || result?.state === 'error' ? 'other' : 'accepted');
+              if (performance.now() - frameAt < 900) outline(hit, video, image, result?.state === 'blocked' ? 'other' : result?.state === 'error' ? 'rejected' : result?.state === 'busy' ? 'decoded' : 'accepted',key);
               if (model?.data.kind === 'mesh') break;
             } else if (qr.data === 'https://mookcumka.github.io/ar-viewer/') {
+              outline(hit,video,image,'other',key);
               if (!collecting && !model) notice('Это QR открытия просмотрщика. Наведите камеру на QR модели.','duplicate','other');
             } else {
               const data = ARCubeData.fromUrl(qr.data);
@@ -463,9 +467,9 @@
               if (batch !== scanBatch || epoch !== cameraEpoch || suspended) break;
               if (duplicate) notice(data.kind === 'part' ? 'QR ' + data.part + ' уже считан' : 'QR уже считан','duplicate');
               if (blocked) notice('QR прежнего листа. Наведите камеру на новый лист.','duplicate','other');
-              if (performance.now() - frameAt < 900) outline(hit,video,image,blocked ? 'other' : 'accepted');
+              if (performance.now() - frameAt < 900) outline(hit,video,image,blocked ? 'other' : 'accepted',key);
             }
-          } catch (error) { report.scan.rejected = (report.scan.rejected || 0) + 1; notice(error.message,'duplicate','other'); }
+          } catch (error) { if(batch===scanBatch&&epoch===cameraEpoch)outline(hit,video,image,'rejected',key); report.scan.rejected = (report.scan.rejected || 0) + 1; notice(error.message,'duplicate','other'); }
           // Keep controls responsive; pausing/resetting cancels the remaining decoded-frame work.
           await new Promise(resolve => setTimeout(resolve,0));
         }

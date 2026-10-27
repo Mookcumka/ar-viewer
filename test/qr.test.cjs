@@ -168,3 +168,7 @@ require("./version-webxr.test.cjs");
 require("./model-files.test.cjs");
 
 require("./camera.test.cjs");
+
+require("./qr-tracker.test.cjs");
+
+require("./qr-overlay.test.cjs");

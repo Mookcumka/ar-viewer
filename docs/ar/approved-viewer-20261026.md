@@ -1,6 +1,6 @@
 # AR Viewer — реализация Issue9, AR-first и самостоятельные файлы
 
-Источник требований: [ar-viewer #9](https://github.com/Mookcumka/ar-viewer/issues/9) и задание владельца26.10.2026. Статус: код в Draft PR, **не опубликован и не принят на реальных устройствах**. Кандидат **0.3.0-rc.2 / build20261027.1 / cache12**. Опубликованная предыдущая версия0.2.0-rc.1 остаётся рабочей до отдельного разрешения.
+Источник требований: [ar-viewer #9](https://github.com/Mookcumka/ar-viewer/issues/9) и задание владельца26.10.2026. Статус: код в Draft PR, **не опубликован и не принят на реальных устройствах**. Кандидат **0.3.0-rc.3 / build20261027.2 / cache13**. Опубликованная предыдущая версия0.2.0-rc.1 остаётся рабочей до отдельного разрешения.
 
 ## Один источник и границы
 
@@ -48,7 +48,7 @@ Exporto, его PR71/Issue72, генераторы Revit и PDF не измен�
 
 ## Офлайн и версии
 
-Один version.js остаётся источником semver/build/cache identity. Root worker/cache12 включает model-files.js/object-view.js/camera.js. Portable allowlist включает их и документацию; тестовых сцен в ZIP нет. Обновление потребует загрузки ресурсов с интернетом; затем QR restore/сохранение файлов локальны. Хранение cache условно: ОС может удалить его, тогда нужен независимый совместимый источник кода. Offline AR/системные share surfaces на реальном устройстве ещё не измерены.
+Один version.js остаётся источником semver/build/cache identity. Root worker/cache13 включает model-files.js/object-view.js/camera.js. Portable allowlist включает их и документацию; тестовых сцен в ZIP нет. Обновление потребует загрузки ресурсов с интернетом; затем QR restore/сохранение файлов локальны. Хранение cache условно: ОС может удалить его, тогда нужен независимый совместимый источник кода. Offline AR/системные share surfaces на реальном устройстве ещё не измерены.
 
 ## Проверки и честные границы
 
@@ -75,3 +75,7 @@ Exporto, его PR71/Issue72, генераторы Revit и PDF не измен�
 ## Доработка камеры 27.10.2026
 
 См. [полный контракт camera preview](camera-preview-20261027.md): QR больше не использует cover-видео AR.js. Один owned stream, ленивый прежний Hiro bridge, capability-gated focus/zoom, фактические settings и новая браузерная регрессия.
+
+## QR-сопровождение 27.10.2026
+
+[Detection → tracking → decode → validation](qr-tracking-20261027.md): предварительные4угла, LK/homography, smoothing/fade, bounded worker. Это screen-space feedback; camera/tracking AR и протоколы данных не меняются. Цвет части не подменяет SHA всего комплекта.

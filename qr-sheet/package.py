@@ -7,14 +7,15 @@ from urllib.parse import urlsplit
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = ['index.html','scan.html','ar-data.js','qr-geometry.js','viewer.js', 'camera.js','version.js','webxr.js','object-view.js','model-files.js','scan-feedback.js','usdz.js','offline.js','sw.js',
+FILES = ['index.html','scan.html','ar-data.js','qr-geometry.js','viewer.js', 'camera.js','qr-tracker.js','qr-overlay.js','qr-track-worker.js','version.js','webxr.js','object-view.js','model-files.js','scan-feedback.js','usdz.js','offline.js','sw.js',
     'manifest.webmanifest','icon.svg','quicklook.svg','diagnostic-route.js','qr-sheet/index.html','qr-sheet/sw.js'] + \
-    ['vendor/'+name for name in ('jsQR.js','meshopt_decoder.js','aframe.min.js','aframe-ar.js','patt.hiro','camera_para.dat')]
+    ['vendor/'+name for name in ('jsQR.js','jsfeat-min.js','qr-locator.js','meshopt_decoder.js','aframe.min.js','aframe-ar.js','patt.hiro','camera_para.dat')]
 
 def package(destination, viewer_url=None):
     content = {name: (ROOT/name).read_bytes() for name in FILES}
     content['docs/ar/safari-qr-sheet.md'] = (ROOT.parent/'docs/ar/safari-qr-sheet.md').read_bytes()
     content['docs/ar/unified-viewer.md'] = (ROOT.parent/'docs/ar/unified-viewer.md').read_bytes()
+    content['docs/ar/qr-tracking-20261027.md'] = (ROOT.parent/'docs/ar/qr-tracking-20261027.md').read_bytes()
     content['docs/ar/camera-preview-20261027.md'] = (ROOT.parent/'docs/ar/camera-preview-20261027.md').read_bytes()
     content['docs/ar/approved-viewer-20261026.md'] = (ROOT.parent/'docs/ar/approved-viewer-20261026.md').read_bytes()
     content['docs/ar/android-version-20261026.md'] = (ROOT.parent/'docs/ar/android-version-20261026.md').read_bytes()
@@ -33,6 +34,7 @@ def package(destination, viewer_url=None):
         'Existing vendors reused unchanged. Source/build details: ar-poc/vendor-local.ps1 in AR-Project.\n'
         'See licenses/ for the upstream terms, including LGPL/GPL and linking exception.\n'
         'meshoptimizer 0.23 MIT: https://github.com/zeux/meshoptimizer/tree/v0.23; self-contained WASM decoder.\n'
+        'jsfeat MIT, pinned commit 4c7b336bbeeb26e6cd4cdf3c7d414abe273846f3; locator subset from existing jsQR 1.4.0 Apache-2.0.\n'
         'USDZ writer and viewer: Mookcumka/AR-Project.\n').encode()
     manifest = {name: hashlib.sha256(data).hexdigest() for name,data in content.items()}
     content['source-manifest.json'] = (json.dumps({'schema':'Exporto-portable-viewer-1','sha256':manifest},indent=2)+'\n').encode()
