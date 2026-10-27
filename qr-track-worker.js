@@ -8,6 +8,6 @@ self.onmessage=event=>{
  const m=event.data;
  if(m.type==='reset'){tracker.reset();return;}
  if(m.type!=='frame')return;
- try{const targets=tracker.process({width:m.width,height:m.height,data:new Uint8ClampedArray(m.buffer)},m.at);self.postMessage({type:'tracks',epoch:m.epoch,seq:m.seq,at:m.at,targets});}
+ try{const targets=tracker.process({width:m.width,height:m.height,data:new Uint8ClampedArray(m.buffer)},m.at,(m.details||[]).slice(0,1).map(d=>({image:{width:d.width,height:d.height,data:new Uint8ClampedArray(d.buffer)},rect:d.rect})));self.postMessage({type:'tracks',epoch:m.epoch,seq:m.seq,at:m.at,detailSearched:tracker.detailSearched,targets});}
  catch(error){self.postMessage({type:'error',epoch:m.epoch,seq:m.seq,message:error.message});}
 };

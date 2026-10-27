@@ -50,3 +50,28 @@ test('LK never reuses a pose from before a missed optical frame',()=>{
  const original=cv.optical_flow_lk.track;let calls=0;cv.optical_flow_lk.track=(...args)=>{calls++;args[7]?.fill(0);};
  try{const e=T.engine(cv,locator);e.process(paint(image(),fixtures[0].rows,160,110),0);e.process(image(),80);const after=calls;e.process(image(),120);assert.equal(calls,after);}finally{cv.optical_flow_lk.track=original;}
 });
+
+// Same existing synthetic decoder vectors, no owner geometry committed as fixtures.
+function denseImage(w,h,x,y,size){
+ const rows=fixtures[0].rows,data=new Uint8ClampedArray(w*h*4);data.fill(255);
+ for(let j=0;j<size;j++)for(let i=0;i<size;i++)if(rows[Math.floor(j*rows.length/size)][Math.floor(i*rows.length/size)]==='1'){
+  const a=((y+j)*w+x+i)*4;data[a]=data[a+1]=data[a+2]=0;
+ }return{width:w,height:h,data};
+}
+test('native video detail acquires dense QR lost by the 640px overview, with correct coordinates',()=>{
+ const overview=denseImage(640,480,165,100,125),detail=denseImage(640,624,330,200,250);
+ assert.equal(locator.detect(overview).length,0);assert.ok(locator.detect(detail).length);
+ const e=T.engine(cv,locator),found=e.process(overview,0,[{image:detail,rect:{x:0,y:0,w:.5,h:.65}}]);
+ assert.equal(e.detailSearched,true);assert.ok(found.length);const expected=square(330/1280,200/960,250/1280);
+ const p=found[0].points;assert.ok(Math.abs(p[0].x-330/1280)<.01);assert.ok(Math.abs(p[0].y-200/960)<.01);assert.ok(Math.abs(p[2].x-580/1280)<.01);assert.ok(Math.abs(p[2].y-450/960)<.01);
+ e.process(overview,80,[{image:detail,rect:{x:0,y:0,w:.5,h:.65}}]);assert.equal(e.detailSearched,false);
+ e.process(overview,160,[{image:detail,rect:{x:0,y:0,w:.5,h:.65}}]);assert.equal(e.detailSearched,true);
+});
+test('detail regions cover all six original-video areas, never upscale, never alter preview zoom',()=>{
+ assert.equal(T.detailRegion(640,480,0),null);
+ for(const [w,h]of [[1280,960],[1920,1080],[1080,1920]])for(let i=0;i<6;i++){
+  const r=T.detailRegion(w,h,i);assert.ok(r.x>=0&&r.y>=0&&r.x+r.w<=w&&r.y+r.h<=h);
+  assert.ok(r.width<=640&&r.height<=640&&r.width<=r.w&&r.height<=r.h);
+ }
+ assert.equal(T.detailRegion(1280,960,0).x,0);assert.ok(T.detailRegion(1280,960,5).y>0);
+});

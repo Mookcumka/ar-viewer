@@ -22,7 +22,7 @@
       autoARAttempted: false, glbCreated: false, quickLookRequested: false, webxrRequested: false, webxrPlaced: false, actualAR: "owner verification required", realRevitProvenance: "owner verification required" } };
   function log(type, detail = {}) { report.events.push({ type, at: new Date().toISOString(), ...detail }); if (report.events.length > 160) report.events.shift(); }
   const qrOverlay=ARQrOverlay.create({svg:$("scan-outline"),emit:detail=>{report.tracking=detail;$("tracking-info").textContent=JSON.stringify(detail);},onTargets:count=>{
-    if(mode==='scan'&&ownedStream&&!suspended)ui.reticle.hidden=count>0;
+    if(mode==='scan')ui.reticle.hidden=true; // Only real detected quadrilaterals may look like a QR frame.
   }});
   let scanBatch = 0, scanStartedAt = 0;
   let mode = "scan", files = null, modeTicket = 0;
@@ -564,7 +564,7 @@
   function videoReady(video) {
     if (document.hidden || suspended || !ownedStream || video?.srcObject !== ownedStream) return;
     if(ui.status.dataset.error!=='true')ui.status.textContent = model?.data.kind === "mesh" ? "Модель готова. Нажмите «Открыть в AR», если устройство поддерживает AR." : collecting ? "Считайте оставшиеся QR этого листа" : model ? "Наведите камеру на маркер Hiro" : "Наведите камеру на QR листа";
-    ui.reticle.hidden = model?.data.kind === "mesh";
+    ui.reticle.hidden = mode === "scan" || model?.data.kind === "mesh";
     showCameraMode();
     startScanning(cameraVideo());
   }

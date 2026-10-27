@@ -1,4 +1,7 @@
-# AR Viewer 0.3.0-rc.3 · build20261027.2
+# AR Viewer 0.3.0-rc.4 · build20261027.3
+
+Draft candidate, NOT published. Baseline rc.3/build20261027.2 was merged/published with owner approval; phone acceptance is still open. This follow-up searches dense QR using bounded original-video detail regions and removes the misleading fixed QR reticle. See the QR tracking document for measured limits and tests.
+
 
 Draft, не опубликован. Реализация [Issue9](https://github.com/Mookcumka/ar-viewer/issues/9): компактный scanner, AR-first, Android AR/3D, самостоятельные USDZ/GLB через share/download, без HTML import/Stop/sound. iPhone использует родной switch Quick Look. Общие decoder/legacy/Hiro и Android #8 сохранены.
 
