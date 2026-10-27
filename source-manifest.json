@@ -1,17 +1,17 @@
 {
   "schema": "ar-viewer-shared-runtime-1",
-  "sourceCommit": "f0f1a4cd510ca46c138bcc1d809ac5edb0c93173",
-  "appVersion": "0.3.0-rc.4",
-  "build": "20261027.3",
+  "sourceCommit": "8b5cbe63d037aa5b7cafdaf5077d4be11633642b",
+  "appVersion": "0.3.0-rc.5",
+  "build": "20261027.4",
   "sha256": {
-    "index.html": "f7abe002000a61b832f8fb2cedad1571b21d78f31e4be4b4a84301a54328ffa0",
+    "index.html": "56be29cd072d258a98320164193110c7633de9f06360f55e787315c84479d6a4",
     "scan.html": "ce64bdd82c994118ea6249439ccdbf489b31680830e62405b19e09c12e00b917",
     "ar-data.js": "49549ad35361912f45166ce7ada854e6c441cb411a80aff4050dd4b1ed5eecf7",
-    "qr-geometry.js": "5e9730c02503b7caed889550d2b83e66ff8d7c27d7a20136aa6936fbc9eba81e",
-    "viewer.js": "66bb914290fbc0ceecc3d1bc17394591ba6809a708dbdfd1587b40a791aafe4a",
+    "qr-geometry.js": "d387eaba3b4ddaf739e3d6ef6865ca6bf5e4118267d94b763da0c258c930f625",
+    "viewer.js": "27c6a5697b51afb980446796b120934f510ec40125bcb42285a15f87ae3a4b11",
     "usdz.js": "05da2757c106b9f74ea558be5f06be95a0fd5b658560815beb498d3a05e7f1e2",
     "offline.js": "da147aa64318089f793e35726eb7ee43774507ccea7f3987de5c534a5f3c227e",
-    "sw.js": "5b87e800eb932dcfe19eca21232dcbb82f5e023d710c2dadd09cb9a49c724e87",
+    "sw.js": "64c613b0f4e3d11f964f67c9f5234a72828c4817524c2945d4156e8b68088220",
     "manifest.webmanifest": "1bc16666fe8161cd5cf064140cbfe2c35cb0614746dbfe417efc53fc74c3fa52",
     "icon.svg": "6b1415488a5761dd8b6d2844381646e4e407eec3a40995a46c596073e1bb8c21",
     "quicklook.svg": "e3b12c04e454bc1a28bc8c3b23db6007a96c85193906bd00b01839ffaeb8932a",
@@ -25,7 +25,7 @@
     "vendor/jsQR.js": "bc40c8a15196236b2314db0856f72ca0b49980cd5413b8c852a7349f5fee0859",
     "vendor/meshopt_decoder.js": "ec77738520a1e528d046d0da5b6e54dd404e92b3baccfc8fd48dea3486dffd20",
     "scan-feedback.js": "084428d1877f5a70b5039ef1243647da978322bda6f79e1cc96b8c58f85ef1ab",
-    "version.js": "17254aa9e6ddee3b3fe54ec9d992396cac51724a91e9795b012ea64d5d627bcc",
+    "version.js": "514173bd3123e9c9ac17dfe1f8f534a3460504f5c0d7c0e88adbd7fa12080c35",
     "webxr.js": "2e1f0934729c0d4bfe1b6d23286a80d8d8dec7f3098a9b5df21879d69cab9f39",
     "model-files.js": "fb143ff4f3cb5b7937c43b8085b78af8886ed8317d947be5c060a14c54ee7bf3",
     "object-view.js": "b762818d8c06135caff37b1e382726b738153d7e2ff8c7965e411b7c483c21d0",
@@ -34,6 +34,12 @@
     "qr-overlay.js": "aa9cff3db0fb7cb75fa037d230da07bad546f2ee4e139ca55d0db67dee315ea0",
     "qr-track-worker.js": "eef1d69e7de1521d8dd0b1f4163c6af72d3403af5355c71079e4e14e7aa38966",
     "vendor/jsfeat-min.js": "974327515d68c91258efd3befa03622c41bbed8e3172771994604325799977a1",
-    "vendor/qr-locator.js": "6dab6b4270d732ac6a2159a34694186e71f1f6573831b4f548f566b044871d3b"
+    "vendor/qr-locator.js": "6dab6b4270d732ac6a2159a34694186e71f1f6573831b4f548f566b044871d3b",
+    "gbx-geometry.js": "a0bf9d20d791a8986e1813a793249583b1b2e2533e26a08766e96557ce5281d2",
+    "vendor/gbx-earcut.js": "3d23a2657cbdb4a75d3af7b073061620fe5d8fdeb12ce43d1d34c5247b33fbe2"
+  },
+  "gbxContract": {
+    "exportoCommit": "e61028be67c937587056f1a3c53c0ee95adc07b8",
+    "fixtureSha256": "fd6c36c6874343ca1ada0c8770b8bad9566a0a5eb4ad3d6deb1c2eb97332919e"
   }
 }

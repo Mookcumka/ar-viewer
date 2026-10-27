@@ -1,16 +1,20 @@
-# AR Viewer 0.3.0-rc.4 · build20261027.3
+# AR Viewer 0.3.0-rc.5 - build20261027.4
 
-Draft candidate, NOT published. Baseline rc.3/build20261027.2 was merged/published with owner approval; phone acceptance is still open. This follow-up searches dense QR using bounded original-video detail regions and removes the misleading fixed QR reticle. See the QR tracking document for measured limits and tests.
+Draft GBX1/QRL3 decoder candidate, NOT published. Baseline rc.4/build20261027.3 is published; physical acceptance remains open. Adds the agreed Exporto compact geometry contract to the existing viewer, preserving camera, magnetic QR frames, UI, Quick Look, Android WebXR and local USDZ/GLB.
 
+GBX1 boxes, extrusions with holes and meshes restore locally from QR. Six frozen C# goldens verify bytes, surfaces, materials and scale. No test geometry in runtime and no new model server. The format remains experimental; synthetic tests do not prove Revit/phone acceptance or QR savings on a real model.
 
-Draft, не опубликован. Реализация [Issue9](https://github.com/Mookcumka/ar-viewer/issues/9): компактный scanner, AR-first, Android AR/3D, самостоятельные USDZ/GLB через share/download, без HTML import/Stop/sound. iPhone использует родной switch Quick Look. Общие decoder/legacy/Hiro и Android #8 сохранены.
+Canonical runtime: AR-Project ar-poc/. Public ar-viewer is a byte-exact mirror. PDF generation belongs to Exporto; the viewer reads its QR. Geometry is not uploaded. No merge or publication without owner permission.
 
-[Контракт, материалы, lifecycle, ограничения и приёмка](docs/ar/approved-viewer-20261026.md). Физический Revit→PDF→iPhone/Android AR ещё не принят. Браузерные тесты не заменяют устройство. Ничего не публиковать/не сливать без отдельного разрешения владельца.
+- [GBX1 contract, limits, provenance and tests](docs/ar/gbx1-20261027.md)
+- [Existing UI/AR/file contract](docs/ar/approved-viewer-20261026.md)
+- [Camera management](docs/ar/camera-preview-20261027.md)
+- [QR tracking](docs/ar/qr-tracking-20261027.md)
 
-Исходный runtime — ar-poc/, публичный ar-viewer получает побайтную копию. PDF создаёт Exporto, viewer читает его QR камерой. Данные модели не отправляются серверу.
-
-Проверки: node --test test/qr.test.cjs qr-sheet/test/codec.test.cjs; с Playwright: node test/approved-browser.cjs и node test/approved-optical.cjs, node test/camera-browser.cjs. Optical fixtures генерирует qr-sheet/test/make_camera_fixture.py (test-only данные). Portable ZIP: python qr-sheet/package.py destination.zip; обслуживать всю папку по HTTPS.
-
-[Камера: полный кадр, focus/zoom по capabilities, фактическая диагностика и границы проверки](docs/ar/camera-preview-20261027.md).
-
-[QR detection/tracking/validation: алгоритмы, состояния, limits, лицензии, тесты и ручная приёмка](docs/ar/qr-tracking-20261027.md). Browser suite: node test/tracker-browser.cjs.
+Tests: `node --test test/qr.test.cjs qr-sheet/test/codec.test.cjs`.
+Browser suites: `node test/approved-browser.cjs`, `node test/approved-optical.cjs`,
+`node test/camera-browser.cjs`, `node test/tracker-browser.cjs`, `node test/dense-browser.cjs`.
+GBX optical fixtures: `python qr-sheet/test/make_gbx_camera_fixture.py /tmp/ar-gbx-camera`,
+then `node test/gbx-optical.cjs` with existing Playwright/CHROMIUM_PATH.
+Portable archive: `python qr-sheet/package.py destination.zip`; serve the whole folder via HTTPS.
+Prepared offline cache is conditional and may be evicted by the OS. Physical device tests remain required.
