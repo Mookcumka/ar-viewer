@@ -33,7 +33,7 @@ const server=http.createServer((req,res)=>{let f=path.resolve(root,'.'+new URL(r
  });
  assert.equal(await p.locator('#stop,#open-file,#scene-file,#sound').count(),0);assert.equal(await p.locator('input[type=file]').count(),0);
  assert.equal(await p.evaluate(()=>fake.streams.length),0);const resetBox=await p.locator('#new-sheet').boundingBox();assert.ok(resetBox.x>300&&resetBox.y<45&&resetBox.width>=44);
- assert.match(await p.locator('#app-version').innerText(),/^v0.3.0-rc.2/);results.compact_ui_no_removed_controls=true;
+ assert.match(await p.locator('#app-version').innerText(),/^v0.3.0-rc.3/);results.compact_ui_no_removed_controls=true;
  await p.locator('#start').click();await p.waitForFunction(()=>fake.streams.length===1&&document.querySelector('#camera-preview')?.videoWidth>0);
  const v=fixtures.find(x=>x.packets.length===6);await p.evaluate(packet=>fake.queue.push(packet),v.packets[2]);await p.waitForFunction(()=>document.querySelectorAll('.part')[2]?.dataset.received==='true');
  assert.deepEqual(await p.locator('.part').allTextContents(),['1','2','3','4','5','6']);assert.ok(!(await p.locator('body').innerText()).includes('Приняты:'));assert.ok(!(await p.locator('body').innerText()).includes('✓'));
@@ -92,7 +92,7 @@ const server=http.createServer((req,res)=>{let f=path.resolve(root,'.'+new URL(r
    if(scenario==='defer')fake.pending.reject(Error('late'));else release();await a;answers.push(adapter.active&&!fresh.disposed);await adapter.end();
   }return answers;
  });assert.deepEqual(races,[true,true,true]);results.xr_cancellation_races=true;
- await p.locator('#diagnostics').evaluate(e=>e.open=true);await p.locator('#report').click();await p.waitForFunction(()=>fake.shares.some(x=>x.name==='ARViewer-report.json'));const reportBytes=await p.evaluate(()=>fake.shares.find(x=>x.name==='ARViewer-report.json').bytes);fs.writeFileSync(out+'/report.json',Buffer.from(reportBytes));const report=JSON.parse(Buffer.from(reportBytes));assert.equal(report.acceptance.actualAR,'owner verification required');assert.equal(report.app.version,'0.3.0-rc.2');assert.equal(JSON.stringify(report).includes('html-file'),false);results.honest_diagnostics_no_file_import=true;
+ await p.locator('#diagnostics').evaluate(e=>e.open=true);await p.locator('#report').click();await p.waitForFunction(()=>fake.shares.some(x=>x.name==='ARViewer-report.json'));const reportBytes=await p.evaluate(()=>fake.shares.find(x=>x.name==='ARViewer-report.json').bytes);fs.writeFileSync(out+'/report.json',Buffer.from(reportBytes));const report=JSON.parse(Buffer.from(reportBytes));assert.equal(report.acceptance.actualAR,'owner verification required');assert.equal(report.app.version,'0.3.0-rc.3');assert.equal(JSON.stringify(report).includes('html-file'),false);results.honest_diagnostics_no_file_import=true;
  // File-size refusal is atomic on legacy as well as generic scenes.
  await p.evaluate(()=>{window.originalUsdz=ARUsdz.build;ARUsdz.build=()=>new Uint8Array(32*1024*1024+1);location.hash=encodeURIComponent('AR1;cube;3000;2000;2000;scale=50');});
  await p.waitForFunction(()=>document.querySelector('#status').dataset.error==='true'&&document.querySelector('#status').textContent.includes('32 МиБ'));assert.equal(await p.evaluate(()=>ARViewer.model()),null);assert.equal(await p.locator('#share-wrap').isVisible(),false);await p.evaluate(()=>ARUsdz.build=originalUsdz);results.oversized_usdz_is_atomic=true;
