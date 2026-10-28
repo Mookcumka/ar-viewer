@@ -156,8 +156,8 @@
     $("webxr-open").hidden=!model||quickLook||!xrSupported||mode==='xr'||mode==='object';
     // Ready screen (P3/P7): one large action; the whole screen is the tap target. 3D only on Android.
     $("ready-3d").hidden=!ready||quickLook; $("ready-3d").classList.toggle('primary',ready&&!quickLook&&!xrChecking&&!xrSupported);
-    // Sheet QR (AR1/AR4/AR5) can also stand on the sheet's «AR» marker at the sheet scale.
-    $("ready-sheet").hidden=!ready||model.data.kind==='mesh';
+    // Sheet QR (AR1/AR4/AR5) and Exporto models with a sheet binding stand on the sheet's «AR» marker at the sheet scale.
+    $("ready-sheet").hidden=!ready||!onSheet(model);
     $("ready-title").textContent=arOpened?'Открыть ещё раз':'Модель собрана';
     $("ready-sub").textContent=arOpened?'Без повторного сканирования: модель на телефоне, пока открыта эта страница.':readyInfo;
     $("ready-note").hidden=!ready||(!quickLook&&!xrSupported&&xrChecking);
@@ -165,7 +165,7 @@
     $("view-close").hidden=!model||!(mode==='xr'||mode==='object'||mode==='marker');
     $("mode-ar").disabled=!xrSupported; $("mode-ar").setAttribute('aria-pressed',String(mode==='xr'));
     $("mode-3d").setAttribute('aria-pressed',String(mode==='object'));
-    $("share-wrap").hidden=!files; $("marker-view").hidden=!diagnostic||!model||model.data.kind==='mesh';
+    $("share-wrap").hidden=!files; $("marker-view").hidden=!diagnostic||!onSheet(model);
     ui.start.hidden=!!model||opening||ui.body.classList.contains('live');
     if(model&&!quickLook&&!xrChecking&&!xrSupported&&mode==='ready')ui.status.textContent='AR недоступен на этом устройстве. Доступен 3D.';
   }
@@ -267,7 +267,7 @@
   document.addEventListener('click',e=>{if(!e.target.closest('#share-wrap')){$("share-menu").hidden=true;$("share").setAttribute('aria-expanded','false');}});
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){$("share-menu").hidden=true;$("share").setAttribute('aria-expanded','false');$("share").focus();}});
   async function openSheet(){
-    if(!model||model.data.kind==='mesh')return;
+    if(!onSheet(model))return;
     const ticket=++modeTicket,current=model;objectView.end();if(xrView.active)await xrView.end();
     if(ticket!==modeTicket||model!==current)return;
     ui.body.classList.remove('xr','object');$("xr-controls").hidden=true;mode='marker';refreshAr();startCamera();log('sheet-mode');
@@ -326,6 +326,20 @@
     return group;
   }
 
+  function onSheet(m) { return !!m && (m.data.kind !== "mesh" || !!m.holder); }
+
+  // Exporto sheet binding (GBX2 flag): sheet.anchor (model metres, after export scale, Y up) lies under the
+  // marker centre, the model is drawn at 1:sheet.scale. Model X runs along the sheet, model -Z up the sheet.
+  function sheetHolder(group, sheet) {
+    if (!sheet) return null;
+    const scale = Number(sheet.scale), anchor = sheet.anchor;
+    if (!(scale > 0) || !Array.isArray(anchor) || anchor.length !== 3 || !anchor.every(Number.isFinite)) return null;
+    const offset = new THREE.Group(), holder = new THREE.Group();
+    offset.position.set(-anchor[0], -anchor[1], -anchor[2]); offset.add(group); holder.add(offset);
+    holder.scale.setScalar(1000 / (MARKER_MM * scale));
+    return holder;
+  }
+
   function buildMeshes(decoded) {
     // All positions come from the verified CBX/GBX scene; no album-specific or synthetic geometry.
     const triangles = qrGeometry.usdzMeshes(decoded), group = new THREE.Group();
@@ -379,8 +393,9 @@
       // Let the assembled cube finish its turn before the ready screen covers it.
       const rest = 650 - (performance.now() - completedAt); if (rest > 0) await new Promise(r => setTimeout(r, rest));
       if (ticket !== generation) { dispose(group); return; }
-      // CBX1 has no paper/marker placement contract: don't invent 1:N from exportScale.
-      model = { data: { kind: "mesh", identity: decoded.sha256, exportScale: decoded.scale, codec: decoded.codec }, group, holder: null };
+      // Without decoded.sheet (QRL1/2, GBX1, GBX2 without the sheet flag) there is no paper placement: don't invent 1:N from exportScale.
+      model = { data: { kind: "mesh", identity: decoded.sha256, exportScale: decoded.scale, codec: decoded.codec, sheet: decoded.sheet || null }, group, holder: sheetHolder(group, decoded.sheet) };
+      if (model.holder && follower) follower.object3D.add(model.holder);
       group = null; acceptedHash = decoded.sha256; collecting = false;
       report.scene = { packetVersion: packet.version, codec: decoded.codec, decodeMilliseconds: decoded.decodeMilliseconds, sha256: decoded.sha256, parts: decoded.qrCount, compressedBytes: decoded.compressedBytes, rawBytes: decoded.rawBytes, objects: decoded.objects, primitives: decoded.primitives, families: decoded.families, warnings: decoded.warnings,
         usdzBytes: blob.size, meshes: decoded.meshes.length, vertices: decoded.vertices, triangles: decoded.triangles,
@@ -476,7 +491,7 @@
       this.seen = -1e9; this.ready = false; this.el.object3D.visible = false;
     },
     tick(time, delta) {
-      if (!model || collecting || parts.length || model.data.kind === "mesh") { this.el.object3D.visible = false; return; }
+      if (!onSheet(model) || collecting || parts.length) { this.el.object3D.visible = false; return; }
       const target = marker && marker.object3D, o = this.el.object3D;
       if (!target) return;
       if (target.visible) {
@@ -685,8 +700,8 @@
 
   function videoReady(video) {
     if (document.hidden || suspended || !ownedStream || video?.srcObject !== ownedStream) return;
-    if(ui.status.dataset.error!=='true')ui.status.textContent = model?.data.kind === "mesh" ? "Модель готова. Нажмите «Открыть в AR», если устройство поддерживает AR." : collecting ? "Считайте оставшиеся QR этого листа" : model ? "Наведите камеру на метку AR" : "Наведите камеру на QR листа";
-    ui.reticle.hidden = model?.data.kind === "mesh" || (mode === "scan" && !!model);
+    if(ui.status.dataset.error!=='true')ui.status.textContent = model?.data.kind === "mesh" && mode !== 'marker' ? "Модель готова. Нажмите «Открыть в AR», если устройство поддерживает AR." : collecting ? "Считайте оставшиеся QR этого листа" : model ? "Наведите камеру на метку AR" : "Наведите камеру на QR листа";
+    ui.reticle.hidden = (model?.data.kind === "mesh" && mode !== 'marker') || (mode === "scan" && !!model);
     if (mode === "scan" && !model && !collecting && $("hint").hidden) hint(SEARCH_HINT, 0);
     showCameraMode();
     startScanning(cameraVideo());

@@ -76,7 +76,7 @@ const server=http.createServer((req,res)=>{let f=path.resolve(root,'.'+new URL(r
  // C# GBX1 packets flow through exactly the existing model, WebXR, 3D and sharing paths.
  const gbx=require('../qr-sheet/test/gbx1-v1.json').find(v=>v.Name==='mixed'),gbxPackets=gbx.Packets.map(x=>Array.from(Buffer.from(x,'base64')));
  await newSheet();await p.evaluate(()=>fake.mode='deny');await p.evaluate(parts=>fake.queue.push(...parts),gbxPackets);
- await p.waitForFunction(()=>ARViewer.model()?.data.codec==='gzip-gbx1'&&ARViewer.glb());assert.equal(await p.locator('#object-canvas').count(),0);
+ await p.waitForFunction(()=>ARViewer.model()?.data.codec==='gzip-gbx1'&&ARViewer.glb());assert.equal(await p.locator('#object-canvas').count(),0);assert.equal(await p.locator('#ready-sheet').isVisible(),false,'no sheet binding, no «На листе»');
  assert.equal(await p.evaluate(()=>ARViewer.model().group.children.length),new Set(gbx.Expected.map(x=>x.Rgba.join(','))).size);
  const beforeGbxShares=await p.evaluate(()=>fake.shares.length);for(const ext of ['usdz','glb']){await p.locator('#share').click();await p.locator('#share-'+ext).click();}
  await p.waitForFunction(n=>fake.shares.length===n+2,beforeGbxShares);
@@ -85,6 +85,13 @@ const server=http.createServer((req,res)=>{let f=path.resolve(root,'.'+new URL(r
  assert.equal(await p.evaluate(()=>fake.renderers.at(-1).world.children.find(o=>o.isGroup).matrix.elements[12]),2);
  await p.locator('#mode-3d').click();await p.waitForFunction(()=>document.querySelector('#object-canvas'));await p.evaluate(()=>fake.renderers.at(-1).frame());
  await p.screenshot({path:out+'/gbx-mixed-3d.png'});results.gbx_csharp_packets_webxr_3d_share=true;
+ // Exporto sheet binding (decoded.sheet from the GBX2 flag): «На листе» puts sheet.anchor under the marker centre at 1:scale.
+ await newSheet();await p.evaluate(()=>{fake.mode='deny';const restore=ExportoQr.restore;window.restoreOriginal=restore;ExportoQr.restore=async(...a)=>({...await restore(...a),sheet:{scale:100,anchor:[1,0,-2]}});});
+ await p.evaluate(parts=>fake.queue.push(...parts),gbxPackets);await p.waitForFunction(()=>ARViewer.model()?.data.sheet&&ARViewer.glb());
+ const placed=await p.evaluate(()=>{const m=ARViewer.model(),o=m.group.parent;return {scale:m.holder.scale.x,offset:[o.position.x,o.position.y,o.position.z],root:o.parent===m.holder};});
+ assert.deepEqual(placed,{scale:0.25,offset:[-1,-0,2],root:true});assert.equal(await p.locator('#ready-sheet').isVisible(),true);
+ await p.locator('#ready-sheet').click();await p.waitForFunction(()=>document.body.classList.contains('on-marker')&&document.querySelector('#arjs-video')?.srcObject?.active&&document.querySelector('[ar-follow]')?.object3D.children.includes(ARViewer.model().holder));
+ await p.locator('#view-close').click();await p.waitForFunction(()=>document.body.classList.contains('ready'));await p.evaluate(()=>ExportoQr.restore=restoreOriginal);results.exporto_sheet_binding_on_marker=true;
  // Legacy shapes are still accepted, preserve opacity, and the «AR» marker cannot overlap XR camera ownership.
  await newSheet();await p.evaluate(payload=>location.hash=encodeURIComponent(payload),cube);await p.waitForFunction(()=>ARViewer.model()?.data.kind==='cube'&&ARViewer.glb());
  const alpha=await p.evaluate(async()=>{const bytes=new Uint8Array(await ARViewer.usdz().arrayBuffer());return new TextDecoder().decode(bytes).includes('inputs:opacity = 0.85')});assert.equal(alpha,true);
