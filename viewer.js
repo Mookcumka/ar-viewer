@@ -25,6 +25,7 @@
   // real tracked quadrilateral; it never asks the user to centre a code. Codes are found anywhere.
   let targetSince = 0, lastDecodeAt = 0, hintTimer = 0;
   const SEARCH_HINT = 'Наведите на QR листа';
+  let launchHinted = false;
   function hint(text, ms = 2200) {
     const box = $("hint"); clearTimeout(hintTimer);
     if (!text) { box.hidden = true; return; }
@@ -34,6 +35,8 @@
   function searching() { return mode === 'scan' && !model && !verifying && ui.body.classList.contains('live'); }
   function trackTargets(count, rects = []) {
     const r = ui.reticle;
+    // Launch QR and codes of another sheet are tracked but ignored: the hint never locks onto them.
+    rects = rects.filter(x => x.state !== 'ignored'); count = rects.length;
     if (!searching()) { if (mode === 'scan') r.hidden = true; return; }
     r.hidden = false;
     const now = performance.now();
@@ -60,13 +63,30 @@
     if (reset) { $("part-progress").replaceChildren(); $("part-progress").hidden = true; shownParts = new Set(); hint(''); }
   }
   let shownParts = new Set();
+  // Recognition animation: an isometric cube split into one slab per QR fills bottom-up as parts arrive
+  // and gives a short turn when the model is assembled.
+  function progressCube(count, have, fresh, done) {
+    const NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg');
+    svg.id = 'build-cube'; svg.setAttribute('viewBox', '0 0 34 34'); svg.setAttribute('aria-hidden', 'true');
+    const P = (x, y, z) => (17 + (x - y) * 13).toFixed(1) + ',' + (9 + (x + y) * 7.5 - z * 16 + 2).toFixed(1);
+    const face = (pts, fill, on, cls) => { const f = document.createElementNS(NS, 'polygon'); f.setAttribute('points', pts.map(p => P(...p)).join(' '));
+      f.setAttribute('class', 'slab' + (cls ? ' ' + cls : '')); f.dataset.on = String(on); if (on) f.style.fill = fill; f.setAttribute('stroke-width', '.8'); svg.append(f); };
+    for (let i = 0; i < count; i++) {
+      const z0 = i / count, z1 = (i + 1) / count, on = i < have, drop = fresh && i === have - 1 ? 'drop' : '';
+      face([[0, 1, z0], [1, 1, z0], [1, 1, z1], [0, 1, z1]], '#88dbab', on, drop);
+      face([[1, 0, z0], [1, 1, z0], [1, 1, z1], [1, 0, z1]], '#6cc493', on, drop);
+    }
+    face([[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]], '#a8ebc4', have >= count, '');
+    if (done) svg.classList.add('done');
+    return svg;
+  }
   function showProgress(count, have, phase = 'collecting') {
     const progress = ARScanFeedback.progress(count, have), row = $("part-progress");
     const fresh = phase === 'collecting' || phase === 'verifying' ? progress.have.filter(n => !shownParts.has(n)) : [];
     shownParts = new Set(progress.have);
     // Android only: a short tap of vibration for a newly accepted part. iPhone Safari has no vibration API.
     if (fresh.length) try { navigator.vibrate?.(30); } catch (_) {}
-    row.replaceChildren(); row.hidden = false;
+    row.replaceChildren(progressCube(count, progress.have.length, fresh.length > 0, progress.have.length >= count)); row.hidden = false;
     for (let n = 1; n <= count; n++) {
       const item = document.createElement('span'), received = progress.have.includes(n);
       item.className = 'part'; item.dataset.received = String(received); item.setAttribute('role','listitem');
@@ -344,12 +364,14 @@
     log("qrl-part", { version: packet.version, hash: p.hash, index: packet.index, count: p.count, source, elapsedMs: Math.round(performance.now() - scanStartedAt) });
     if (!p.complete) return { state: "accepted" };
     if(p.complete) pauseCamera();
-    const ticket = generation; verifying = true; let group = null, blob = null;
+    const ticket = generation, completedAt = performance.now(); verifying = true; let group = null, blob = null;
     try {
       const decoded = await qrGeometry.restore(collector.join()); if (ticket !== generation) return;
       if (ARUsdz.genericMeshProfile !== 1) throw new Error("Устаревший код USDZ в кэше. Обновите просмотрщик с интернетом");
       group = buildMeshes(decoded); blob = usdzFor(group);
       if (blob.size > 32 * 1024 * 1024) throw new Error("USDZ превышает 32 МиБ. Модель не обрезана");
+      // Let the assembled cube finish its turn before the ready screen covers it.
+      const rest = 650 - (performance.now() - completedAt); if (rest > 0) await new Promise(r => setTimeout(r, rest));
       if (ticket !== generation) { dispose(group); return; }
       // CBX1 has no paper/Hiro placement contract: don't invent 1:N from exportScale.
       model = { data: { kind: "mesh", identity: decoded.sha256, exportScale: decoded.scale, codec: decoded.codec }, group, holder: null };
@@ -542,7 +564,7 @@
               if (model?.data.kind === 'mesh') break;
             } else if (qr.data === 'https://mookcumka.github.io/ar-viewer/') {
               outline(hit,video,image,'other',key);
-              hint('Это QR запуска · наведите на QR модели');
+              if (!launchHinted) { launchHinted = true; hint('Это QR запуска · наведите на QR модели'); }
             } else {
               const data = ARCubeData.fromUrl(qr.data);
               const blocked = data.payload === blockedLegacy || blockedLegacyParts.has(data.payload);
