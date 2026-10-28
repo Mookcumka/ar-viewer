@@ -36,10 +36,19 @@
     const all=regions(image.width,image.height),start=((offset%all.length)+all.length)%all.length;
     const views=Array.from({length:Math.max(1,Math.min(12,limit))},(_,i)=>all[(start+i)%all.length]);
     for(const region of views){
-      const part=crop(image,region),found=decode(part.data,part.width,part.height,{inversionAttempts:'dontInvert'});if(!found){yield {qr:null,points:[]};continue;}
-      const location={...found.location};
-      for(const key of ['topLeftCorner','topRightCorner','bottomRightCorner','bottomLeftCorner'])if(location[key])location[key]={x:location[key].x+region.x,y:location[key].y+region.y};
-      const qr={...found,location},points=corners(qr);mask(image,points);yield{qr,points};
+      // jsQR returns one code per call. After masking it, read the SAME region again so a launch QR or an
+      // already accepted part does not hide the next code beside it until a later frame.
+      const seen=[];
+      for(let pass=0;pass<3;pass++){
+        const part=crop(image,region),found=decode(part.data,part.width,part.height,{inversionAttempts:'dontInvert'});if(!found){if(!pass)yield {qr:null,points:[]};break;}
+        const location={...found.location};
+        for(const key of ['topLeftCorner','topRightCorner','bottomRightCorner','bottomLeftCorner'])if(location[key])location[key]={x:location[key].x+region.x,y:location[key].y+region.y};
+        const qr={...found,location},points=corners(qr);
+        // The same quadrilateral again means the mask did not hide it: stop instead of re-reading it.
+        const bytes=String(found.binaryData||found.data||'');
+        if(pass&&points.every(p=>p)&&seen.some(q=>q.bytes===bytes&&q.points.every((c,i)=>Math.abs(c.x-points[i].x)<2&&Math.abs(c.y-points[i].y)<2)))break;
+        seen.push({points,bytes});const masked=mask(image,points);yield{qr,points};if(!masked)break;
+      }
     }
   }
   function map(points, frame, rect, overlay, fit='fill'){

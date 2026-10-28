@@ -27,13 +27,15 @@
    },
    mark(points,at,state,key,checkedAt=at){
     const t=this.observe(points,at);if(!t)return null;
-    if(t.key!==key){t.state='decoded';t.stateUntil=0;}t.key=key;
-    t.state=['accepted','rejected','decoded','other'].includes(state)?state:'candidate';t.stateUntil=checkedAt+650;return t.id;
+    if(t.key!==key){t.state='decoded';t.stateUntil=0;t.ignored=false;}t.key=key;
+    t.state=['accepted','rejected','decoded','other'].includes(state)?state:'candidate';t.stateUntil=checkedAt+650;
+    // A code that is not part of this model (launch QR, another sheet) stays ignored while it is tracked.
+    if(state==='other')t.ignored=true;return t.id;
    },
    sample(at){
     targets=targets.filter(t=>at-t.seen<650&&at-t.detectedAt<950);
     return targets.map(t=>{const k=1-Math.exp(-Math.max(0,Math.min(80,at-t.drawAt))/55);t.points=t.points.map((p,i)=>({x:p.x+(t.goal[i].x-p.x)*k,y:p.y+(t.goal[i].y-p.y)*k}));t.drawAt=at;
-     return{id:t.id,points:copy(t.points),state:at<t.stateUntil?t.state:'candidate',opacity:Math.max(0,Math.min(1,(650-(at-t.seen))/300))};});
+     return{id:t.id,points:copy(t.points),state:t.ignored?'ignored':at<t.stateUntil?t.state:'candidate',opacity:Math.max(0,Math.min(1,(650-(at-t.seen))/300))};});
    }
   };
  }
