@@ -21,22 +21,57 @@
     acceptance: { source: null, cameraQrRead: false, integrityVerified: false, usdzCreated: false,
       autoARAttempted: false, glbCreated: false, quickLookRequested: false, webxrRequested: false, webxrPlaced: false, actualAR: "owner verification required", realRevitProvenance: "owner verification required" } };
   function log(type, detail = {}) { report.events.push({ type, at: new Date().toISOString(), ...detail }); if (report.events.length > 160) report.events.shift(); }
-  const qrOverlay=ARQrOverlay.create({svg:$("scan-outline"),emit:detail=>{report.tracking=detail;$("tracking-info").textContent=JSON.stringify(detail);},onTargets:count=>{
-    if(mode==='scan')ui.reticle.hidden=true; // Only real detected quadrilaterals may look like a QR frame.
-  }});
+  // Search hint (Google Lens / ML Kit pattern): soft corners wait in the centre and fly onto the
+  // real tracked quadrilateral; it never asks the user to centre a code. Codes are found anywhere.
+  let targetSince = 0, lastDecodeAt = 0, hintTimer = 0;
+  const SEARCH_HINT = 'Наведите на QR листа';
+  function hint(text, ms = 2200) {
+    const box = $("hint"); clearTimeout(hintTimer);
+    if (!text) { box.hidden = true; return; }
+    box.firstElementChild.textContent = text; box.hidden = false; box.dataset.text = text;
+    if (ms) hintTimer = setTimeout(() => { box.hidden = true; }, ms);
+  }
+  function searching() { return mode === 'scan' && !model && !verifying && ui.body.classList.contains('live'); }
+  function trackTargets(count, rects = []) {
+    const r = ui.reticle;
+    if (!searching()) { if (mode === 'scan') r.hidden = true; return; }
+    r.hidden = false;
+    const now = performance.now();
+    if (!count) {
+      targetSince = 0;
+      if (r.classList.contains('locked')) { r.classList.remove('locked'); r.classList.add('idle'); r.removeAttribute('style'); }
+      if ($("hint").dataset.text === 'Ближе') hint('');
+      return;
+    }
+    if (!targetSince) targetSince = now;
+    if ($("hint").dataset.text === SEARCH_HINT) hint('');
+    const t = rects.reduce((a, b) => (b.w * b.h > a.w * a.h ? b : a), rects[0]);
+    if (t) { const pad = 6; r.classList.remove('idle'); r.classList.add('locked');
+      Object.assign(r.style, { left: (t.x - pad) + 'px', top: (t.y - pad) + 'px', width: (t.w + pad * 2) + 'px', height: (t.h + pad * 2) + 'px' }); }
+    // A dense geometry QR is found but cannot be read from this distance: one word, no instructions.
+    const stuck = rects.length && rects.every(x => x.state === 'candidate') && now - Math.max(targetSince, lastDecodeAt) > 1500;
+    if (stuck && $("hint").hidden) hint('Ближе', 1800);
+  }
+  const qrOverlay=ARQrOverlay.create({svg:$("scan-outline"),emit:detail=>{report.tracking=detail;$("tracking-info").textContent=JSON.stringify(detail);},onTargets:trackTargets});
   let scanBatch = 0, scanStartedAt = 0;
-  let mode = "scan", files = null, modeTicket = 0;
+  let mode = "scan", files = null, modeTicket = 0, arOpened = false, readyInfo = "";
   function clearFeedback(reset = false) {
     scanBatch++; qrOverlay.clear();
-    if (reset) { $("part-progress").replaceChildren(); $("part-progress").hidden = true; }
+    if (reset) { $("part-progress").replaceChildren(); $("part-progress").hidden = true; shownParts = new Set(); hint(''); }
   }
+  let shownParts = new Set();
   function showProgress(count, have, phase = 'collecting') {
     const progress = ARScanFeedback.progress(count, have), row = $("part-progress");
+    const fresh = phase === 'collecting' || phase === 'verifying' ? progress.have.filter(n => !shownParts.has(n)) : [];
+    shownParts = new Set(progress.have);
+    // Android only: a short tap of vibration for a newly accepted part. iPhone Safari has no vibration API.
+    if (fresh.length) try { navigator.vibrate?.(30); } catch (_) {}
     row.replaceChildren(); row.hidden = false;
     for (let n = 1; n <= count; n++) {
       const item = document.createElement('span'), received = progress.have.includes(n);
       item.className = 'part'; item.dataset.received = String(received); item.setAttribute('role','listitem');
       item.textContent = String(n); item.setAttribute('aria-label', 'QR ' + n + (received ? ' принят' : ' ожидается')); row.append(item);
+      if (fresh.includes(n)) { item.classList.add('pop'); setTimeout(() => item.classList.remove('pop'), 220); }
     }
     row.setAttribute('aria-label', 'Части модели: ' + progress.have.length + ' из ' + count);
     return progress;
@@ -46,6 +81,7 @@
   }
   function outline(hit, video, frame, kind = 'accepted', key = '') {
     if(hit.points.some(p=>!p||!Number.isFinite(p.x)||!Number.isFinite(p.y)))return;
+    lastDecodeAt = performance.now();
     qrOverlay.hit(hit.points,frame,kind,key,hit.at);
   }
   window.addEventListener('resize', () => clearFeedback());
@@ -58,6 +94,7 @@
     $("marker-view").hidden = true; $("share-menu").hidden = true; $("share").setAttribute("aria-expanded","false");
     model?.holder?.removeFromParent(); dispose(model?.group); model = null; files = null;
     if (usdzUrl) URL.revokeObjectURL(usdzUrl); usdzUrl = null; ui.look.hidden = true; ui.look.removeAttribute("href"); ui.dot.hidden = true;
+    arOpened = false; readyInfo = ""; $("ready-thumb").hidden = true; $("ready-thumb").removeAttribute("src"); ui.body.classList.remove("ready");
     return ended;
   }
   async function newSheet() {
@@ -93,13 +130,21 @@
   }});
   const xrReady = ARWebXR.supported().then(value=>{xrSupported=value;xrChecking=false;report.capabilities={quickLook,immersiveAR:value};refreshAr();});
   function refreshAr(){
+    const ready=!!model&&mode==='ready';
+    ui.body.classList.toggle('ready',ready);
     ui.look.hidden=!model||!quickLook||!usdzUrl;
     $("webxr-open").hidden=!model||quickLook||!xrSupported||mode==='xr'||mode==='object';
-    $("mode-switch").hidden=!model||quickLook;
+    // Ready screen (P3/P7): one large action; the whole screen is the tap target. 3D only on Android.
+    $("ready-3d").hidden=!ready||quickLook; $("ready-3d").classList.toggle('primary',ready&&!quickLook&&!xrChecking&&!xrSupported);
+    $("ready-title").textContent=arOpened?'Открыть ещё раз':'Модель собрана';
+    $("ready-sub").textContent=arOpened?'Без повторного сканирования: модель на телефоне, пока открыта эта страница.':readyInfo;
+    $("ready-note").hidden=!ready||(!quickLook&&!xrSupported&&xrChecking);
+    $("mode-switch").hidden=!model||quickLook||!(mode==='xr'||mode==='object');
+    $("view-close").hidden=!model||!(mode==='xr'||mode==='object');
     $("mode-ar").disabled=!xrSupported; $("mode-ar").setAttribute('aria-pressed',String(mode==='xr'));
     $("mode-3d").setAttribute('aria-pressed',String(mode==='object'));
     $("share-wrap").hidden=!files; $("marker-view").hidden=!diagnostic||!model||model.data.kind==='mesh';
-    ui.start.hidden=!!model;
+    ui.start.hidden=!!model||opening||ui.body.classList.contains('live');
     if(model&&!quickLook&&!xrChecking&&!xrSupported&&mode==='ready')ui.status.textContent='AR недоступен на этом устройстве. Доступен 3D.';
   }
   async function openAR(automatic=false){
@@ -113,6 +158,7 @@
     if(!xrSupported){await xrReady;if(ticket!==modeTicket||model!==current)return;}
     if(!xrSupported){refreshAr();return;}
     if(xrView.active)return;
+    if(!automatic)arOpened=true;
     objectView.end();pauseCamera();mode='xr';ui.body.classList.remove('object');ui.body.classList.add('xr');$("xr-controls").hidden=false;refreshAr();
     report.acceptance.webxrRequested=true;
     try {await xrView.start(current.group);}
@@ -130,8 +176,29 @@
     objectView.start(current.group);mode='object';ui.body.classList.remove('xr');ui.body.classList.add('object');$("xr-controls").hidden=true;ui.status.textContent='';refreshAr();log('object-mode');
   }
   $("webxr-open").onclick=()=>openAR(false); $("mode-ar").onclick=()=>openAR(false); $("mode-3d").onclick=()=>open3D().catch(e=>notice(e.message,'error'));
+  $("ready-3d").onclick=()=>open3D().catch(e=>notice(e.message,'error'));
   $("xr-reset").onclick=()=>xrView.reset();
-  $("xr-size").oninput=e=>{const cm=Number(e.target.value);xrView.setWidth(cm/100);$("xr-size-label").textContent=cm+' см';};
+  // Browsers start AR only from a real tap (WebKit rel="ar", WebXR requestSession). The ready screen
+  // turns the whole screen into that tap; the anchor click below runs inside the user's own gesture.
+  function primaryAction(){
+    if(!model||mode!=='ready')return;
+    if(quickLook){if(usdzUrl)ui.look.click();return;}
+    if(xrSupported){openAR(false);return;}
+    if(!xrChecking)open3D().catch(e=>notice(e.message,'error'));
+  }
+  $("panel").addEventListener('click',e=>{if(!ui.body.classList.contains('ready')||e.target.closest('button,a,input,label,details,#share-wrap'))return;primaryAction();});
+  $("view-close").onclick=async()=>{
+    const ticket=++modeTicket;
+    if(xrView.active){await xrView.end().catch(error=>log('webxr-end-error',{message:error.message}));}
+    if(ticket!==modeTicket)return;
+    objectView.end();mode='ready';ui.body.classList.remove('xr','object');$("xr-controls").hidden=true;ui.status.textContent='';refreshAr();
+  };
+  $("xr-scale").addEventListener('click',e=>{
+    const b=e.target.closest('button');if(!b)return;
+    try{if(b.dataset.ratio)xrView.setRatio(Number(b.dataset.ratio));else xrView.setWidth(Number(b.dataset.width));}
+    catch(error){notice(error.message,'error');return;}
+    for(const x of $("xr-scale").querySelectorAll('button'))x.setAttribute('aria-pressed',String(x===b));log('xr-scale',{ratio:b.dataset.ratio||null,width:b.dataset.width||null});
+  });
   $("ui").addEventListener('beforexrselect',e=>{if(e.target.closest('button,a,input,label,summary'))e.preventDefault();});
   function presentModel(preparedUSDZ=null){
     if(ownedStream||opening)pauseCamera();
@@ -141,12 +208,28 @@
     const glb=new Blob([ARModelFiles.glb(meshes)],{type:'model/gltf-binary'});
     files={usdz:new File([usdz],'Exporto-AR.usdz',{type:'model/vnd.usdz+zip'}),glb:new File([glb],'Exporto-AR.glb',{type:'model/gltf-binary'})};
     if(usdzUrl)URL.revokeObjectURL(usdzUrl);usdzUrl=URL.createObjectURL(usdz);ui.look.href=usdzUrl;
-    mode='ready';ui.status.textContent='';delete ui.status.dataset.error;refreshAr();
+    mode='ready';ui.status.textContent='';delete ui.status.dataset.error;
+    if(!readyInfo)readyInfo=model.data.kind==='mesh'?'Проверено · QR: '+(report.scene?.parts||''):ARCubeData.title(model.data);
+    thumbnail(model.group);refreshAr();
     report.acceptance.usdzCreated=true;report.acceptance.glbCreated=true;
     if(report.scene)Object.assign(report.scene,{usdzBytes:usdz.size,glbBytes:glb.size});
     log('model-files-ready',{usdzBytes:usdz.size,glbBytes:glb.size});
     // AR-first: never initialize the ordinary 3D renderer here. Browser policy may require the visible CTA.
     openAR(true).catch(e=>{log('auto-ar-error',{message:e.message});refreshAr();});
+  }
+  // One still picture of the assembled model for the ready screen; the renderer is released at once.
+  function thumbnail(group){
+    const img=$("ready-thumb");img.hidden=true;
+    let renderer=null;const holder=group.parent,scene=new THREE.Scene();
+    try{
+      renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});renderer.setPixelRatio(1);renderer.setSize(520,390,false);renderer.setClearColor(0x000000,0);
+      const clone=group.clone(true);clone.updateMatrixWorld(true);const box=new THREE.Box3().setFromObject(clone),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3());
+      const extent=Math.max(size.x,size.y,size.z);if(!Number.isFinite(extent)||extent<=0)return;
+      clone.position.sub(center);scene.add(clone);scene.add(new THREE.HemisphereLight(0xffffff,0x777777,2));const light=new THREE.DirectionalLight(0xffffff,1);light.position.set(1,3,2);scene.add(light);
+      const r=size.length()/2,camera=new THREE.OrthographicCamera(-r*4/3,r*4/3,r,-r,-10*r,10*r);camera.position.set(r,r*.85,r);camera.lookAt(0,0,0);
+      renderer.render(scene,camera);img.src=renderer.domElement.toDataURL('image/png');img.hidden=false;clone.removeFromParent();
+    }catch(error){log('thumbnail-error',{message:error.message});}
+    finally{try{renderer?.dispose();renderer?.forceContextLoss();}catch(_){}if(holder&&group.parent!==holder)holder.add(group);}
   }
   $("share").onclick=()=>{const menu=$("share-menu");menu.hidden=!menu.hidden;$("share").setAttribute('aria-expanded',String(!menu.hidden));};
   async function saveModel(format){
@@ -240,7 +323,7 @@
 
   async function ingestMesh(bytes, source) {
     const packet = qrGeometry.packet(bytes);
-    if (packet.hash === blockedHash) { notice('QR прежнего листа. Наведите камеру на новый лист.','duplicate','other'); return { state: 'blocked' }; }
+    if (packet.hash === blockedHash) { hint('QR с другого листа · ⟳ справа сверху — новый лист'); return { state: 'blocked' }; }
     if (packet.hash === acceptedHash) return { state: 'duplicate' };
     if (verifying) return { state: 'busy' };
     const p = collector.add(bytes);
@@ -276,6 +359,7 @@
         extentMeters: decoded.extent, exportScale: decoded.scale, originMeters: decoded.originMeters, excluded: decoded.excluded };
       report.acceptance.integrityVerified = true; report.acceptance.usdzCreated = true;
       ui.title.textContent = "Модель Exporto"; ui.sheet.textContent = `${decoded.qrCount}/${decoded.qrCount} · SHA-256 OK`;
+      readyInfo = `${decoded.qrCount} QR · проверено`;
       ui.status.textContent = "";
       $("scene-info").textContent = `${decoded.meshes.length} мешей · ${decoded.triangles} треугольников · ${decoded.extent.map(x => x.toFixed(3)).join(" × ")} м. ${decoded.excluded.join("; ")}`;
       showProgress(decoded.qrCount, Array.from({length:decoded.qrCount},(_,i)=>i+1), 'ready');
@@ -458,7 +542,7 @@
               if (model?.data.kind === 'mesh') break;
             } else if (qr.data === 'https://mookcumka.github.io/ar-viewer/') {
               outline(hit,video,image,'other',key);
-              if (!collecting && !model) notice('Это QR открытия просмотрщика. Наведите камеру на QR модели.','duplicate','other');
+              hint('Это QR запуска · наведите на QR модели');
             } else {
               const data = ARCubeData.fromUrl(qr.data);
               const blocked = data.payload === blockedLegacy || blockedLegacyParts.has(data.payload);
@@ -469,7 +553,8 @@
               if (blocked) notice('QR прежнего листа. Наведите камеру на новый лист.','duplicate','other');
               if (performance.now() - frameAt < 900) outline(hit,video,image,blocked ? 'other' : 'accepted',key);
             }
-          } catch (error) { if(batch===scanBatch&&epoch===cameraEpoch)outline(hit,video,image,'rejected',key); report.scan.rejected = (report.scan.rejected || 0) + 1; notice(error.message,'duplicate','other'); }
+          } catch (error) { if(batch===scanBatch&&epoch===cameraEpoch)outline(hit,video,image,/другой модели/.test(error.message)?'other':'rejected',key); report.scan.rejected = (report.scan.rejected || 0) + 1;
+            if (/другой модели/.test(error.message)) hint('QR с другого листа · ⟳ справа сверху — новый лист'); }
           // Keep controls responsive; pausing/resetting cancels the remaining decoded-frame work.
           await new Promise(resolve => setTimeout(resolve,0));
         }
@@ -478,11 +563,20 @@
     },280);
   }
 
+  function cameraRefused(error) {
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const denied = error?.name === 'NotAllowedError' || error?.name === 'SecurityError';
+    ui.status.dataset.error = 'true';
+    ui.status.textContent = denied ? (ios ? 'Нет доступа к камере. Настройки › Приложения › Safari › Камера › «Разрешить», затем «Повторить».'
+      : 'Нет доступа к камере. Значок слева от адреса › Разрешения › Камера › «Разрешить», затем «Повторить».')
+      : 'Камера не открылась. Закройте другие приложения с камерой и нажмите «Повторить».';
+    ui.start.textContent = 'Повторить'; ui.start.hidden = false; log('camera-refused', { name: error?.name || 'Error' });
+  }
   async function startCamera() {
     if (opening || ownedStream || verifying) return;
     delete ui.status.dataset.error;
     const ticket = ++cameraEpoch; opening = true; suspended = false;
-    ui.start.hidden = true;
+    ui.start.hidden = true; hint('');
 
     ui.body.classList.add("live");
     ui.status.textContent = "Подключение камеры…";
@@ -490,7 +584,7 @@
     let supported = {};
     try { supported = navigator.mediaDevices?.getSupportedConstraints?.() || {}; } catch (_) { /* Preserve system defaults when capability probing is unavailable. */ }
     try { stream = await navigator.mediaDevices.getUserMedia(ARCamera.request(supported)); }
-    catch (error) { if (ticket === cameraEpoch) { pauseCamera(); ui.status.textContent = "Не удалось открыть камеру. Разрешите доступ в настройках браузера и повторите."; } return; }
+    catch (error) { if (ticket === cameraEpoch) { pauseCamera(); cameraRefused(error); } return; }
     if (ticket !== cameraEpoch || document.hidden) { stream.getTracks().forEach(t => t.stop()); return; }
     ownedStream = stream; scanStartedAt = performance.now();
     const track = stream.getVideoTracks()[0];
@@ -564,7 +658,8 @@
   function videoReady(video) {
     if (document.hidden || suspended || !ownedStream || video?.srcObject !== ownedStream) return;
     if(ui.status.dataset.error!=='true')ui.status.textContent = model?.data.kind === "mesh" ? "Модель готова. Нажмите «Открыть в AR», если устройство поддерживает AR." : collecting ? "Считайте оставшиеся QR этого листа" : model ? "Наведите камеру на маркер Hiro" : "Наведите камеру на QR листа";
-    ui.reticle.hidden = mode === "scan" || model?.data.kind === "mesh";
+    ui.reticle.hidden = model?.data.kind === "mesh" || (mode === "scan" && !!model);
+    if (mode === "scan" && !model && !collecting && $("hint").hidden) hint(SEARCH_HINT, 0);
     showCameraMode();
     startScanning(cameraVideo());
   }
@@ -577,8 +672,8 @@
     const source = scene?.systems.arjs?._arSession?.arSource;
     if (source?.domElement) { source.ready = false; source.domElement.pause(); source.domElement.srcObject = null; source.domElement.style.display = "none"; }
     scene?.pause(); if (scene) scene.style.display = "none";
-    ui.body.classList.remove("live","hiro"); ui.start.hidden = false; ui.reticle.hidden = true;
-    ui.start.hidden=!!model;ui.status.textContent = "";
+    ui.body.classList.remove("live","hiro"); ui.reticle.hidden = true; hint('');
+    ui.start.hidden=!!model;ui.status.textContent = ""; delete ui.status.dataset.error;
   }
   // A QR opened from the system camera may reuse this tab and change only the fragment.
   window.addEventListener("hashchange", () => {
@@ -589,14 +684,18 @@
   window.addEventListener('pageshow',()=>{
     if(model&&mode==='object'&&!objectView.active){try{objectView.start(model.group);}catch(e){mode='ready';ui.body.classList.remove('object');notice(e.message,'error');}}
     refreshAr();
+    if(!document.hidden&&autoCamera&&mode==='scan'&&!model&&!verifying&&!ownedStream&&!opening&&ui.status.dataset.error!=='true')startCamera();
   });
   // Reopen explicitly after backgrounding; do not keep the camera running invisibly.
   document.addEventListener("visibilitychange", () => {
     if (document.hidden && !xrView.active && (ownedStream || opening)) pauseCamera();
+    else if (!document.hidden && autoCamera && mode === 'scan' && !model && !verifying && !ownedStream && !opening) startCamera();
   });
 
   $("new-sheet").onclick = newSheet;
-  ui.look.addEventListener("click", () => { report.acceptance.quickLookRequested = true; log("quicklook-request"); });
+  ui.look.addEventListener("click", e => { report.acceptance.quickLookRequested = true; log("quicklook-request");
+    // Quick Look covers the page; on return the ready screen offers to open it again.
+    if (e.isTrusted || navigator.userActivation?.isActive) { arOpened = true; setTimeout(refreshAr, 600); } });
   $("report").onclick = async () => {
     cameraDiagnostics();
     const file = new File([JSON.stringify({...report, offline: window.AROfflineState || null}, null, 2)], "ARViewer-report.json", { type: "application/json" });
@@ -606,12 +705,17 @@
   };
 
   ui.start.disabled = false;
+  // P2: the camera opens itself; the button stays only as a retry after a refusal.
+  let autoCamera = true;
+  const autoStart = () => { if (autoCamera && !model && !document.hidden && mode === 'scan') startCamera(); };
+  ui.start.hidden = true;
   if (location.hash.length > 1) {
     ui.status.textContent = "Разбор QR…";
     const initial = generation;
-    load(location.hash, false).catch(error => { if (initial === generation) ui.status.textContent = error.message + ". Откройте камеру и наведите её на QR листа."; });
+    load(location.hash, false).then(autoStart, error => { if (initial === generation) { ui.status.textContent = ""; notice(error.message, 'error'); autoStart(); } });
   } else {
-    ui.status.textContent = "Откройте камеру и наведите её на QR листа.";
+    ui.status.textContent = "";
+    autoStart();
   }
   if (!quickLook) ui.look.hidden = true;
   // For the browser test: the current model and its USDZ without Quick Look.

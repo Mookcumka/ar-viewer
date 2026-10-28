@@ -4,7 +4,7 @@
  function create({svg,emit=()=>{},onTargets=()=>{}}){
   const bank=ARQrTracker.bank(),nodes=new Map();let video=null,worker=null,epoch=0,seq=0,pending=null,timer=0,raf=0,size='',active=false,run=0,region=0,tracked=[],focusedPasses=0;
   const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true}),detailCanvas=document.createElement('canvas'),detailCtx=detailCanvas.getContext('2d',{willReadFrequently:true});
-  function clear(){epoch++;pending=null;size='';tracked=[];focusedPasses=0;bank.reset();svg.replaceChildren();nodes.clear();worker?.postMessage({type:'reset'});onTargets(0);}
+  function clear(){epoch++;pending=null;size='';tracked=[];focusedPasses=0;bank.reset();svg.replaceChildren();nodes.clear();worker?.postMessage({type:'reset'});onTargets(0,[]);}
   function fallback(reason){worker?.terminate();worker=null;pending=null;emit({mode:'decoded-only',reason});}
   function capture(){
    if(!active||!video?.videoWidth||video.readyState<2||video.paused||document.hidden||!ctx)return;
@@ -26,7 +26,7 @@
   }
   function draw(){
    if(!active)return;
-   const targets=bank.sample(performance.now()),visible=new Set(),box=svg.getBoundingClientRect();
+   const targets=bank.sample(performance.now()),visible=new Set(),box=svg.getBoundingClientRect(),rects=[];
    if(video?.videoWidth&&box.width&&box.height){
     svg.setAttribute('viewBox','0 0 '+box.width+' '+box.height);
     for(const t of targets){
@@ -34,10 +34,12 @@
      const frame={width:video.videoWidth,height:video.videoHeight},points=t.points.map(p=>({x:p.x*frame.width,y:p.y*frame.height}));
      const mapped=ARScanFeedback.map(points,frame,video.getBoundingClientRect(),box,getComputedStyle(video).objectFit);
      node.setAttribute('points',mapped.map(p=>p.x+','+p.y).join(' '));node.dataset.kind=t.state;node.style.opacity=String(t.opacity);visible.add(t.id);
+     // Screen box of the tracked quadrilateral: the viewer's search hint flies onto it.
+     const xs=mapped.map(p=>p.x),ys=mapped.map(p=>p.y);rects.push({x:box.left+Math.min(...xs),y:box.top+Math.min(...ys),w:Math.max(...xs)-Math.min(...xs),h:Math.max(...ys)-Math.min(...ys),state:t.state});
     }
    }
    for(const [id,node]of nodes)if(!visible.has(id)){node.remove();nodes.delete(id);}
-   onTargets(visible.size);raf=requestAnimationFrame(draw);
+   onTargets(visible.size,rects);raf=requestAnimationFrame(draw);
   }
   return {
    start(source){

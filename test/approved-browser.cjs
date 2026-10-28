@@ -11,6 +11,8 @@ const server=http.createServer((req,res)=>{let f=path.resolve(root,'.'+new URL(r
  const results={},errors=[],net=[];
  try{
  const c=await browser.newContext({viewport:{width:393,height:852},permissions:['camera']}),p=await c.newPage();p.on('pageerror',e=>errors.push(e.message));p.on('request',r=>net.push(r.url()));
+ // XR/3D hides the header (P9): leave through the close button first, as a person would.
+ const newSheet=async()=>{if(await p.locator('#view-close').isVisible()){await p.locator('#view-close').click();await p.waitForFunction(()=>!document.body.classList.contains('xr')&&!document.body.classList.contains('object'));}await p.locator('#new-sheet').click();};
  await p.addInitScript(()=>{
   window.fake={streams:[],sessions:[],renderers:[],mode:'deny',shares:[],queue:[],requestModes:[]};
   const get=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);navigator.mediaDevices.getUserMedia=async opt=>{if(fake.sessions.some(s=>!s.ended))throw Error('Concurrent XR and QR cameras');const stream=await get(opt);fake.streams.push(stream);return stream;};
@@ -32,13 +34,13 @@ const server=http.createServer((req,res)=>{let f=path.resolve(root,'.'+new URL(r
   window.originalQR=jsQR;window.jsQR=()=>{const q=fake.queue.shift();return q?{binaryData:q,data:'',location:{topLeftCorner:{x:30,y:30},topRightCorner:{x:250,y:30},bottomRightCorner:{x:250,y:250},bottomLeftCorner:{x:30,y:250}}}:null;};
  });
  assert.equal(await p.locator('#stop,#open-file,#scene-file,#sound').count(),0);assert.equal(await p.locator('input[type=file]').count(),0);
- assert.equal(await p.evaluate(()=>fake.streams.length),0);const resetBox=await p.locator('#new-sheet').boundingBox();assert.ok(resetBox.x>300&&resetBox.y<45&&resetBox.width>=44);
+ await p.waitForFunction(()=>fake.streams.length===1);assert.equal(await p.locator('#start').isVisible(),false);results.camera_opens_without_tap=true;const resetBox=await p.locator('#new-sheet').boundingBox();assert.ok(resetBox.x>300&&resetBox.y<45&&resetBox.width>=44);
  assert.equal(await p.locator('#app-version').innerText(),`v${require('../version.js').version} · ${require('../version.js').build}`);results.compact_ui_no_removed_controls=true;
- await p.locator('#start').click();await p.waitForFunction(()=>fake.streams.length===1&&document.querySelector('#camera-preview')?.videoWidth>0);
+ await p.evaluate(()=>{const s=document.querySelector('#start');if(!s.hidden)s.click();});await p.waitForFunction(()=>fake.streams.length===1&&document.querySelector('#camera-preview')?.videoWidth>0);
  const v=fixtures.find(x=>x.packets.length===6);await p.evaluate(packet=>fake.queue.push(packet),v.packets[2]);await p.waitForFunction(()=>document.querySelectorAll('.part')[2]?.dataset.received==='true');
  assert.deepEqual(await p.locator('.part').allTextContents(),['1','2','3','4','5','6']);assert.ok(!(await p.locator('body').innerText()).includes('Приняты:'));assert.ok(!(await p.locator('body').innerText()).includes('✓'));
  await p.evaluate(packet=>fake.queue.push(packet),v.packets[2]);await p.waitForTimeout(600);assert.equal(await p.locator('.part[data-received=true]').count(),1);
- const before=await p.evaluate(()=>fake.streams.length);await p.locator('#new-sheet').click();assert.equal(await p.locator('.part').count(),0);assert.equal(await p.evaluate(()=>fake.streams.length),before);
+ const before=await p.evaluate(()=>fake.streams.length);await newSheet();assert.equal(await p.locator('.part').count(),0);assert.equal(await p.evaluate(()=>fake.streams.length),before);
  await p.evaluate(parts=>fake.queue.push(...parts),v.packets.slice().reverse());await p.waitForFunction(()=>ARViewer.glb()&&document.querySelector('#webxr-open').hidden===false);
  assert.equal(await p.locator('#object-canvas').count(),0);assert.equal(await p.evaluate(()=>fake.released),true);assert.equal(await p.evaluate(()=>fake.requestModes.length),1);assert.ok(await p.locator('#webxr-open').isVisible());results.numbers_reset_same_sheet_auto_ar_fallback_no_preview=true;
  // Real files, not URL wrappers; shared only by a gesture.
@@ -60,20 +62,20 @@ const server=http.createServer((req,res)=>{let f=path.resolve(root,'.'+new URL(r
  // BFCache return must not leave a blank canvas with 3D still selected.
  await p.evaluate(()=>{dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true}));dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));});assert.equal(await p.locator('#object-canvas').count(),1);
  await p.locator('#mode-ar').click();await p.waitForFunction(()=>document.querySelector('#webxr-canvas'));assert.equal(await p.locator('#object-canvas').count(),0);results.android_ar_3d_pose_reset_fit_bfcache=true;
- await p.locator('#new-sheet').click();await p.waitForFunction(()=>fake.streams.length===2);assert.equal(await p.locator('#webxr-canvas,#object-canvas').count(),0);assert.equal(await p.evaluate(()=>ARViewer.model()),null);assert.equal(await p.locator('.part').count(),0);results.new_sheet_exits_xr_and_reopens_one_camera=true;
+ await newSheet();await p.waitForFunction(()=>fake.streams.length===2);assert.equal(await p.locator('#webxr-canvas,#object-canvas').count(),0);assert.equal(await p.evaluate(()=>ARViewer.model()),null);assert.equal(await p.locator('.part').count(),0);results.new_sheet_exits_xr_and_reopens_one_camera=true;
  // New QR codec restores from cached resources, same printed payload, without HTML importer.
  await c.setOffline(true);await p.evaluate(parts=>fake.queue.push(...parts),meshopt.find(x=>x.name==='optimized-40-True').packets);await p.waitForFunction(()=>ARViewer.model()?.data.codec==='meshopt-0.23+gzip');
  assert.ok(await p.evaluate(()=>ARViewer.glb().size>0&&ARViewer.usdz().size>0));results.qrl2_wasm_offline_camera_restore=true;
  await c.setOffline(false);
  // A late restore may never commit after the one-tap scan reset.
  await p.evaluate(()=>{fake.mode='deny';window.originalRestore=ExportoQr.restore;ExportoQr.restore=async(...args)=>{const value=await originalRestore(...args);await new Promise(r=>window.finishRestore=r);return value;};});
- await p.locator('#new-sheet').click();await p.evaluate(parts=>fake.queue.push(...parts),fixtures[0].packets);await p.waitForFunction(()=>window.finishRestore);
- await p.locator('#new-sheet').click();await p.evaluate(()=>{finishRestore();ExportoQr.restore=originalRestore;});await p.waitForTimeout(100);assert.equal(await p.evaluate(()=>ARViewer.model()),null);assert.equal(await p.locator('.part').count(),0);
+ await newSheet();await p.evaluate(parts=>fake.queue.push(...parts),fixtures[0].packets);await p.waitForFunction(()=>window.finishRestore);
+ await newSheet();await p.evaluate(()=>{finishRestore();ExportoQr.restore=originalRestore;});await p.waitForTimeout(100);assert.equal(await p.evaluate(()=>ARViewer.model()),null);assert.equal(await p.locator('.part').count(),0);
  const broken=fixtures[0].packets.map(p=>p.slice());broken.at(-1)[48]^=1;await p.evaluate(parts=>fake.queue.push(...parts),broken);await p.waitForFunction(()=>document.querySelector('#status').dataset.error==='true');assert.equal(await p.evaluate(()=>ARViewer.model()),null);
- await p.locator('#new-sheet').click();await p.evaluate(parts=>fake.queue.push(...parts),fixtures[0].packets);await p.waitForFunction(()=>ARViewer.glb());assert.notEqual(await p.locator('#status').getAttribute('data-error'),'true');results.cancel_restore_corruption_and_retry=true;
+ await newSheet();await p.evaluate(parts=>fake.queue.push(...parts),fixtures[0].packets);await p.waitForFunction(()=>ARViewer.glb());assert.notEqual(await p.locator('#status').getAttribute('data-error'),'true');results.cancel_restore_corruption_and_retry=true;
  // C# GBX1 packets flow through exactly the existing model, WebXR, 3D and sharing paths.
  const gbx=require('../qr-sheet/test/gbx1-v1.json').find(v=>v.Name==='mixed'),gbxPackets=gbx.Packets.map(x=>Array.from(Buffer.from(x,'base64')));
- await p.locator('#new-sheet').click();await p.evaluate(()=>fake.mode='deny');await p.evaluate(parts=>fake.queue.push(...parts),gbxPackets);
+ await newSheet();await p.evaluate(()=>fake.mode='deny');await p.evaluate(parts=>fake.queue.push(...parts),gbxPackets);
  await p.waitForFunction(()=>ARViewer.model()?.data.codec==='gzip-gbx1'&&ARViewer.glb());assert.equal(await p.locator('#object-canvas').count(),0);
  assert.equal(await p.evaluate(()=>ARViewer.model().group.children.length),new Set(gbx.Expected.map(x=>x.Rgba.join(','))).size);
  const beforeGbxShares=await p.evaluate(()=>fake.shares.length);for(const ext of ['usdz','glb']){await p.locator('#share').click();await p.locator('#share-'+ext).click();}
@@ -84,7 +86,7 @@ const server=http.createServer((req,res)=>{let f=path.resolve(root,'.'+new URL(r
  await p.locator('#mode-3d').click();await p.waitForFunction(()=>document.querySelector('#object-canvas'));await p.evaluate(()=>fake.renderers.at(-1).frame());
  await p.screenshot({path:out+'/gbx-mixed-3d.png'});results.gbx_csharp_packets_webxr_3d_share=true;
  // Legacy shapes are still accepted, preserve opacity, and Hiro cannot overlap XR camera ownership.
- await p.locator('#new-sheet').click();await p.evaluate(payload=>location.hash=encodeURIComponent(payload),cube);await p.waitForFunction(()=>ARViewer.model()?.data.kind==='cube'&&ARViewer.glb());
+ await newSheet();await p.evaluate(payload=>location.hash=encodeURIComponent(payload),cube);await p.waitForFunction(()=>ARViewer.model()?.data.kind==='cube'&&ARViewer.glb());
  const alpha=await p.evaluate(async()=>{const bytes=new Uint8Array(await ARViewer.usdz().arrayBuffer());return new TextDecoder().decode(bytes).includes('inputs:opacity = 0.85')});assert.equal(alpha,true);
  await p.evaluate(()=>fake.mode='ok');if(!await p.locator('#webxr-canvas').count())await p.locator('#webxr-open').click();await p.waitForFunction(()=>document.querySelector('#webxr-canvas'));
  await p.locator('#diagnostics').evaluate(e=>e.open=true);await p.locator('#marker-view').click();await p.waitForFunction(()=>fake.sessions.every(s=>s.ended)&&document.querySelector('#arjs-video')?.srcObject?.active);assert.equal(await p.evaluate(()=>fake.sessions.every(s=>s.ended)),true);results.legacy_opacity_hiro_single_camera=true;
@@ -95,7 +97,7 @@ const server=http.createServer((req,res)=>{let f=path.resolve(root,'.'+new URL(r
  await p.evaluate(q=>location.hash=encodeURIComponent(q),payload);await p.waitForFunction(()=>ARViewer.model()?.data.kind==='walls'&&ARViewer.glb());
  const crc=(legacyData.crc32(payload)&65535).toString(16).padStart(4,'0'),step=Math.ceil(payload.length/3),legacyParts=Array.from({length:3},(_,i)=>`AR5;id=${crc};part=${i+1};of=3;data=${payload.slice(i*step,(i+1)*step)}`);
  for(const i of [2,0,1]){await p.evaluate(q=>location.hash=encodeURIComponent(q),legacyParts[i]);await p.waitForTimeout(30);}
- await p.waitForFunction(()=>ARViewer.model()?.data.kind==='walls'&&ARViewer.model().data.anchored&&ARViewer.glb());assert.deepEqual(await p.locator('.part').allTextContents(),['1','2','3']);assert.equal(await p.locator('.part[data-received=true]').count(),3);await p.locator('#mode-3d').click();await p.waitForFunction(()=>document.querySelector('#object-canvas'));await p.evaluate(()=>fake.renderers.at(-1).frame());await p.locator('#diagnostics').evaluate(e=>e.open=false);await p.screenshot({path:out+'/legacy-walls-3d.png'});results.legacy_ar4_ar5_openings_and_parts=true;
+ await p.waitForFunction(()=>ARViewer.model()?.data.kind==='walls'&&ARViewer.model().data.anchored&&ARViewer.glb());assert.deepEqual(await p.locator('.part').allTextContents(),['1','2','3']);assert.equal(await p.locator('.part[data-received=true]').count(),3);assert.equal(await p.locator('body.ready #ready-3d').isVisible(),true);await p.locator('#ready-3d').click();await p.waitForFunction(()=>document.querySelector('#object-canvas'));await p.evaluate(()=>fake.renderers.at(-1).frame());await p.locator('#diagnostics').evaluate(e=>e.open=false);await p.screenshot({path:out+'/legacy-walls-3d.png'});results.legacy_ar4_ar5_openings_and_parts=true;
  // Software cancellation races of the reused WebXR module remain covered.
  const races=await p.evaluate(async()=>{
   const g=ARViewer.model().group,answers=[];for(const scenario of ['defer','defer-local','defer-hit']){
@@ -112,7 +114,7 @@ const server=http.createServer((req,res)=>{let f=path.resolve(root,'.'+new URL(r
  const apple=await browser.newContext({viewport:{width:393,height:852},permissions:['camera']}),a=await apple.newPage();a.on('pageerror',e=>errors.push(e.message));
  await a.addInitScript(()=>{window.arClicks=[];const supports=DOMTokenList.prototype.supports;DOMTokenList.prototype.supports=function(t){return t==='ar'||supports.call(this,t)};document.addEventListener('click',e=>{if(e.target.closest('#look')){arClicks.push({trusted:e.isTrusted});e.preventDefault()}});});
  await a.goto(base);await a.waitForFunction(()=>window.ARViewer);await a.evaluate(()=>{window.q=[];window.jsQR=()=>{const bytes=q.shift();return bytes?{binaryData:bytes,data:'',location:{topLeftCorner:{x:10,y:10},topRightCorner:{x:220,y:10},bottomRightCorner:{x:220,y:220},bottomLeftCorner:{x:10,y:220}}}:null}});
- await a.locator('#start').click();await a.evaluate(parts=>q.push(...parts),fixtures[0].packets);await a.waitForFunction(()=>ARViewer.usdz()&&arClicks.length===1);assert.equal(await a.locator('#object-canvas').count(),0);assert.equal(await a.locator('#look').isVisible(),true);assert.equal(await a.locator('#mode-switch').isVisible(),false);assert.deepEqual(await a.locator('#look').evaluate(e=>[e.children.length,e.firstElementChild.tagName]),[1,'IMG']);await a.locator('#look').click();assert.deepEqual(await a.evaluate(()=>arClicks.map(x=>x.trusted)),[false,true]);await a.screenshot({path:out+'/apple-ready.png'});results.apple_auto_attempt_one_cta_native_switch_contract=true;
+ await a.evaluate(()=>{const s=document.querySelector('#start');if(!s.hidden)s.click();});await a.evaluate(parts=>q.push(...parts),fixtures[0].packets);await a.waitForFunction(()=>ARViewer.usdz()&&arClicks.length===1);assert.equal(await a.locator('#object-canvas').count(),0);assert.equal(await a.locator('#look').isVisible(),true);assert.equal(await a.locator('#mode-switch').isVisible(),false);assert.deepEqual(await a.locator('#look').evaluate(e=>[e.children.length,e.firstElementChild.tagName]),[1,'IMG']);await a.locator('#look').click();assert.deepEqual(await a.evaluate(()=>arClicks.map(x=>x.trusted)),[false,true]);await a.screenshot({path:out+'/apple-ready.png'});results.apple_auto_attempt_one_cta_native_switch_contract=true;
  assert.deepEqual(errors,[]);assert.deepEqual(net.filter(u=>!u.startsWith(base)&&!u.startsWith('blob:')),[]);results.no_errors_or_model_network=true;
  fs.writeFileSync(out+'/results.json',JSON.stringify({results,physicalDevices:'NOT TESTED',realRevit:'NOT TESTED'},null,2));console.log(JSON.stringify(results,null,2));
  }finally{await browser.close();server.close();}
