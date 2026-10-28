@@ -108,7 +108,7 @@ navigator.mediaDevices.getUserMedia = (...args) => { window.cameraRequests++; re
         if i < 2:
             page.wait_for_function(f"document.getElementById('title').textContent === 'Части {i + 1} из 3'")
     page.wait_for_function("document.getElementById('sheet').textContent === 'Лист AR-T.07'")
-    position = page.evaluate("(() => { const m = ARViewer.model(); return [m.data.anchored, m.group.children[0].position.x, m.group.children[0].position.z, m.holder.scale.x]; })()")
+    position = page.evaluate("(() => { const m = ARViewer.model(); return [m.data.anchored, m.group.position.x + m.group.children[0].position.x, m.group.position.z + m.group.children[0].position.z, m.holder.scale.x]; })()")
     assert position == [True, 0, 0, 0.25], position
     results['three_qr_parts_join_into_anchored_model'] = True
     page.evaluate(f'location.hash = {json.dumps(quote(walls))}')

@@ -156,11 +156,13 @@
     $("webxr-open").hidden=!model||quickLook||!xrSupported||mode==='xr'||mode==='object';
     // Ready screen (P3/P7): one large action; the whole screen is the tap target. 3D only on Android.
     $("ready-3d").hidden=!ready||quickLook; $("ready-3d").classList.toggle('primary',ready&&!quickLook&&!xrChecking&&!xrSupported);
+    // Sheet QR (AR1/AR4/AR5) can also stand on the sheet's Hiro marker at the sheet scale.
+    $("ready-sheet").hidden=!ready||model.data.kind==='mesh';
     $("ready-title").textContent=arOpened?'Открыть ещё раз':'Модель собрана';
     $("ready-sub").textContent=arOpened?'Без повторного сканирования: модель на телефоне, пока открыта эта страница.':readyInfo;
     $("ready-note").hidden=!ready||(!quickLook&&!xrSupported&&xrChecking);
     $("mode-switch").hidden=!model||quickLook||!(mode==='xr'||mode==='object');
-    $("view-close").hidden=!model||!(mode==='xr'||mode==='object');
+    $("view-close").hidden=!model||!(mode==='xr'||mode==='object'||mode==='marker');
     $("mode-ar").disabled=!xrSupported; $("mode-ar").setAttribute('aria-pressed',String(mode==='xr'));
     $("mode-3d").setAttribute('aria-pressed',String(mode==='object'));
     $("share-wrap").hidden=!files; $("marker-view").hidden=!diagnostic||!model||model.data.kind==='mesh';
@@ -211,6 +213,7 @@
     const ticket=++modeTicket;
     if(xrView.active){await xrView.end().catch(error=>log('webxr-end-error',{message:error.message}));}
     if(ticket!==modeTicket)return;
+    if(mode==='marker')pauseCamera();
     objectView.end();mode='ready';ui.body.classList.remove('xr','object');$("xr-controls").hidden=true;ui.status.textContent='';refreshAr();
   };
   $("xr-scale").addEventListener('click',e=>{
@@ -263,12 +266,13 @@
   if(quickLook)$("share-menu").prepend($("share-usdz"));else $("share-menu").prepend($("share-glb"));
   document.addEventListener('click',e=>{if(!e.target.closest('#share-wrap')){$("share-menu").hidden=true;$("share").setAttribute('aria-expanded','false');}});
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){$("share-menu").hidden=true;$("share").setAttribute('aria-expanded','false');$("share").focus();}});
-  $("marker-view").onclick=async()=>{
+  async function openSheet(){
     if(!model||model.data.kind==='mesh')return;
     const ticket=++modeTicket,current=model;objectView.end();if(xrView.active)await xrView.end();
     if(ticket!==modeTicket||model!==current)return;
-    ui.body.classList.remove('xr','object');$("xr-controls").hidden=true;mode='marker';startCamera();
-  };
+    ui.body.classList.remove('xr','object');$("xr-controls").hidden=true;mode='marker';refreshAr();startCamera();log('sheet-mode');
+  }
+  $("marker-view").onclick=openSheet;$("ready-sheet").onclick=openSheet;
 
   // ---------- model ----------
 
@@ -311,11 +315,13 @@
       mesh.userData.rgb = rgb;
       inner.add(mesh);
     }
-    // Anchored (m=1): coordinates already run from the marker centre, the model stands on its plan.
-    // Otherwise stand the model on the marker centre.
+    // The model files (USDZ/GLB, 3D, WebXR) are centred on the plan so the model turns about itself.
+    // Anchored (m=1): coordinates run from the marker centre, so the group moves back by the centre
+    // and on Hiro the model stands on its plan. Otherwise it stands on the marker centre.
     const bounds = new THREE.Box3().setFromObject(inner), center = bounds.getCenter(new THREE.Vector3());
-    inner.position.set(data.anchored ? 0 : -center.x, -bounds.min.y, data.anchored ? 0 : -center.z);
+    inner.position.set(-center.x, -bounds.min.y, -center.z);
     const group = new THREE.Group();
+    if (data.anchored) group.position.set(center.x, 0, center.z);
     group.add(inner);
     return group;
   }
