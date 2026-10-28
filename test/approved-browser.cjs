@@ -71,6 +71,18 @@ const server=http.createServer((req,res)=>{let f=path.resolve(root,'.'+new URL(r
  await p.locator('#new-sheet').click();await p.evaluate(()=>{finishRestore();ExportoQr.restore=originalRestore;});await p.waitForTimeout(100);assert.equal(await p.evaluate(()=>ARViewer.model()),null);assert.equal(await p.locator('.part').count(),0);
  const broken=fixtures[0].packets.map(p=>p.slice());broken.at(-1)[48]^=1;await p.evaluate(parts=>fake.queue.push(...parts),broken);await p.waitForFunction(()=>document.querySelector('#status').dataset.error==='true');assert.equal(await p.evaluate(()=>ARViewer.model()),null);
  await p.locator('#new-sheet').click();await p.evaluate(parts=>fake.queue.push(...parts),fixtures[0].packets);await p.waitForFunction(()=>ARViewer.glb());assert.notEqual(await p.locator('#status').getAttribute('data-error'),'true');results.cancel_restore_corruption_and_retry=true;
+ // C# GBX1 packets flow through exactly the existing model, WebXR, 3D and sharing paths.
+ const gbx=require('../qr-sheet/test/gbx1-v1.json').find(v=>v.Name==='mixed'),gbxPackets=gbx.Packets.map(x=>Array.from(Buffer.from(x,'base64')));
+ await p.locator('#new-sheet').click();await p.evaluate(()=>fake.mode='deny');await p.evaluate(parts=>fake.queue.push(...parts),gbxPackets);
+ await p.waitForFunction(()=>ARViewer.model()?.data.codec==='gzip-gbx1'&&ARViewer.glb());assert.equal(await p.locator('#object-canvas').count(),0);
+ assert.equal(await p.evaluate(()=>ARViewer.model().group.children.length),new Set(gbx.Expected.map(x=>x.Rgba.join(','))).size);
+ const beforeGbxShares=await p.evaluate(()=>fake.shares.length);for(const ext of ['usdz','glb']){await p.locator('#share').click();await p.locator('#share-'+ext).click();}
+ await p.waitForFunction(n=>fake.shares.length===n+2,beforeGbxShares);
+ await p.evaluate(()=>fake.mode='ok');await p.locator('#webxr-open').click();await p.waitForFunction(()=>fake.renderers.at(-1)?.frame);
+ await p.evaluate(()=>{fake.renderers.at(-1).frame(1,frame(pose(2)));fake.sessions.at(-1).dispatchEvent(new Event('select'));fake.renderers.at(-1).frame(2,frame(pose(8)));});
+ assert.equal(await p.evaluate(()=>fake.renderers.at(-1).world.children.find(o=>o.isGroup).matrix.elements[12]),2);
+ await p.locator('#mode-3d').click();await p.waitForFunction(()=>document.querySelector('#object-canvas'));await p.evaluate(()=>fake.renderers.at(-1).frame());
+ await p.screenshot({path:out+'/gbx-mixed-3d.png'});results.gbx_csharp_packets_webxr_3d_share=true;
  // Legacy shapes are still accepted, preserve opacity, and Hiro cannot overlap XR camera ownership.
  await p.locator('#new-sheet').click();await p.evaluate(payload=>location.hash=encodeURIComponent(payload),cube);await p.waitForFunction(()=>ARViewer.model()?.data.kind==='cube'&&ARViewer.glb());
  const alpha=await p.evaluate(async()=>{const bytes=new Uint8Array(await ARViewer.usdz().arrayBuffer());return new TextDecoder().decode(bytes).includes('inputs:opacity = 0.85')});assert.equal(alpha,true);

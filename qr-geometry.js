@@ -1,9 +1,11 @@
-/* Versioned Exporto QRL1/CBX1 and QRL2/CBX2 browser adapter. No models or network I/O. */
+/* Versioned Exporto QRL1/CBX1, QRL2/CBX2, QRL3/GBX1 and QRL4/GBX2 browser adapter. No models or network I/O. */
 (function (root) {
   "use strict";
   const LIMITS = Object.freeze({ scene: 5142, packet: 905, chunk: 857, raw: 32 * 1024 * 1024,
     metadata: 2 * 1024 * 1024, meshes: 10000, vertices: 1000000, indices: 3000000,
-    renderTriangles: 50000, html: 8 * 1024 * 1024 });
+    renderTriangles: 50000, html: 8 * 1024 * 1024, chunk4: 889 });
+  const gbx = typeof module === "object" && module.exports ? require("./gbx-geometry.js") : root.ARGbx;
+  const gbx2 = typeof module === "object" && module.exports ? require("./gbx2-geometry.js") : root.ARGbx2;
   const IDENTITY = [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
   const fail = message => { throw new Error(message); };
   const finite = x => typeof x === "number" && Number.isFinite(x);
@@ -14,11 +16,21 @@
     return value;
   }
   function magic(b, text, at = 0) { return [...text].every((x, i) => b[at + i] === x.charCodeAt(0)); }
+  // QRL4: 16-byte header "QRL4" + SHA-256[0..8] + total u16 + index u8 + count u8; body is a deflate-raw GBX2 slice.
+  function packet4(b) {
+    if (b.length < 17 || b.length > LIMITS.packet) fail("Неверный размер пакета QRL4");
+    const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    const total = v.getUint16(12, true), index = b[14], count = b[15], hash = hex(b.slice(4, 12)), length = b.length - 16;
+    if (total < 1 || count < 1 || count > 6 || index >= count || length > LIMITS.chunk4 || total > count * LIMITS.chunk4 || total < count)
+      fail("Неверные границы пакета QRL4");
+    return { version: 4, hash, total, index, count, body: b.slice(16), key: `4:${hash}:${total}:${count}` };
+  }
   function packet(input) {
     const b = bytes(input);
-    if (b.length < 49 || b.length > LIMITS.packet || !(magic(b, "QRL1") || magic(b, "QRL2"))) fail("Это не пакет Exporto QRL1/QRL2");
+    if (magic(b, "QRL4")) return packet4(b);
+    if (b.length < 49 || b.length > LIMITS.packet || !(magic(b, "QRL1") || magic(b, "QRL2") || magic(b, "QRL3"))) fail("Это не пакет Exporto QRL1/QRL2/QRL3");
     const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
-    const version = magic(b, "QRL2") ? 2 : 1;
+    const version = magic(b, "QRL3") ? 3 : magic(b, "QRL2") ? 2 : 1;
     const total = v.getUint32(36, true), index = v.getUint16(40, true), count = v.getUint16(42, true);
     const length = v.getUint32(44, true), hash = hex(b.slice(4, 36));
     if (total < 1 || total > LIMITS.scene || (version === 1 ? ![1,3,6].includes(count) : count < 1 || count > 6) || index >= count ||
@@ -48,12 +60,12 @@
       let at = 0;
       for (let i = 0; i < p.count; i++) { const b = this.parts.get(i); if (!b || at + b.length > joined.length) fail("Неверная длина частей"); joined.set(b, at); at += b.length; }
       if (at !== p.total) fail("Длина сцены не совпадает с QR");
-      return { compressed: joined, hash: p.hash, count: p.count };
+      return { compressed: joined, hash: p.hash, count: p.count, version: p.version };
     }
   }
-  async function inflate(input) {
+  async function inflate(input, format = "gzip") {
     if (typeof DecompressionStream !== "function") fail("Нужен Safari с поддержкой gzip DecompressionStream");
-    const reader = new Blob([input]).stream().pipeThrough(new DecompressionStream("gzip")).getReader();
+    const reader = new Blob([input]).stream().pipeThrough(new DecompressionStream(format)).getReader();
     const chunks = []; let length = 0;
     try {
       for (;;) {
@@ -69,6 +81,7 @@
   }
   function decodeRaw(input) {
     const b = bytes(input);
+    if (magic(b,"GBX1")) { if(!gbx) fail("Отсутствует декодер GBX1: обновите просмотрщик"); return gbx.decode(b); }
     if (b.length < 8 || b.length > LIMITS.raw || !magic(b, "CBX1")) fail("Ожидалась сцена CBX1");
     const v = new DataView(b.buffer, b.byteOffset, b.byteLength), size = v.getUint32(4, true);
     if (size < 2 || size > LIMITS.metadata || 8 + size > b.length) fail("Неверный размер метаданных");
@@ -153,11 +166,22 @@
     const started = root.performance?.now() ?? Date.now();
     if (!root.crypto?.subtle) fail("Для SHA-256 нужен защищённый контекст HTTPS");
     const hash = hex(new Uint8Array(await root.crypto.subtle.digest("SHA-256", joined.compressed)));
+    if (joined.version === 4) {
+      if (hash.slice(0, 16) !== joined.hash) fail("SHA-256 не совпадает. Модель не создана");
+      if (!gbx2) fail("Отсутствует декодер GBX2: обновите просмотрщик");
+      const raw = await inflate(joined.compressed, "deflate-raw");
+      if (!magic(raw, "GBX2")) fail("QRL4 требует GBX2; несовместимый тип полезной нагрузки");
+      const scene = await gbx2.decode(raw, { meshopt: root.MeshoptDecoder });
+      scene.codec = "deflate-gbx2";
+      return Object.assign(scene, { sha256: hash, compressedBytes: joined.compressed.length, qrCount: joined.count, decodeMilliseconds: (root.performance?.now() ?? Date.now()) - started });
+    }
     if (hash !== joined.hash) fail("SHA-256 не совпадает. Модель не создана");
     const raw = await inflate(joined.compressed);
+    const compact = magic(raw,"GBX1");
+    if ((joined.version === 3) !== compact) fail("QRL3 требует GBX1; несовместимый тип полезной нагрузки");
     const meshopt = magic(raw,"CBX2");
     const scene = decodeRaw(meshopt ? await expandMeshopt(raw) : raw);
-    scene.codec = meshopt ? "meshopt-0.23+gzip" : "gzip-cbx1"; scene.rawBytes = raw.length;
+    scene.codec = compact ? "gzip-gbx1" : meshopt ? "meshopt-0.23+gzip" : "gzip-cbx1"; scene.rawBytes = raw.length;
     return Object.assign(scene, { sha256: hash, compressedBytes: joined.compressed.length, qrCount: joined.count, decodeMilliseconds: (root.performance?.now() ?? Date.now()) - started });
   }
   function htmlPackets(text) {
