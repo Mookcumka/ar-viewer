@@ -1,8 +1,10 @@
-# AR Viewer 0.3.0-rc.4 · build 20261027.3
+# AR Viewer 0.4.0-rc.1 · build 20261028.1
 
 Веб-просмотрщик для телефона. Считывает камерой QR-коды с печатного AR-листа Exporto, собирает 3D-модель прямо на телефоне и открывает её в AR. Вся геометрия модели хранится в самих QR: модель не скачивается и не отправляется на сервер, после первой загрузки сайт работает офлайн.
 
-**Опубликовано:** [mookcumka.github.io/ar-viewer](https://mookcumka.github.io/ar-viewer/) (GitHub Pages, 27.10.2026, cache 14). Публикация — только по отдельному слову владельца.
+**Правило публикации (Максим, 28.10.2026):** один адрес — [mookcumka.github.io/ar-viewer](https://mookcumka.github.io/ar-viewer/), там всегда актуальная версия. Изменение просмотрщика, слитое в `main` AR-Project, сразу копируется в `ar-viewer` и публикуется. Тестовых адресов, копий в подпапках и ссылок «смотри туда» не делаем. Новая версия обязана читать все форматы, которые печатает текущий Exporto.
+
+Форматы: GBX2/QRL4 (стены, плиты, библиотека семейств v2 — [формат](../docs/ar/gbx2-wire-format.md), [библиотека](../docs/ar/gbx2-library.md)), GBX1/QRL3, QRL1/QRL2.
 
 **Не проверено:** сквозной путь Revit → PDF → iPhone/Android на реальных телефонах и бумаге. Браузерные тесты эту проверку не заменяют.
 
@@ -12,7 +14,7 @@
 - Кнопка «новый лист» справа сверху сбрасывает принятые части без подтверждения.
 - После последнего QR сразу открывается AR: на iPhone — Quick Look (свой переключатель AR / Объект), на Android — WebXR с переключением AR / 3D. Если браузер требует нажатия, показывается одна кнопка «Открыть AR».
 - Сохранение собранной модели в настоящие файлы USDZ и GLB через «Поделиться» / загрузку.
-- Форматы QR: QRL1/QRL2 (геометрия Exporto, meshoptimizer), прежние AR1/AR4/AR5 и Hiro. Ручной импорт HTML, кнопки «Стоп» и звука нет.
+- Форматы QR: QRL1/QRL2 (геометрия Exporto, meshoptimizer), QRL3/GBX1 (Geometry Baking, только эта ветка), прежние AR1/AR4/AR5 и Hiro. Ручной импорт HTML, кнопки «Стоп» и звука нет.
 
 Утверждённые решения по интерфейсу — [ar-viewer#9](https://github.com/Mookcumka/ar-viewer/issues/9). Экспорт AR-листа в PDF делает Exporto ([MyRevitPluginNet8#72](https://github.com/Mookcumka/MyRevitPluginNet8/issues/72), пока черновики #71, #73, #74). Новый формат GBX1/QRL3 согласуется там же; обязательной совместимости со старыми тестовыми QR нет (решение владельца 27.10.2026).
 
@@ -22,10 +24,10 @@
 
 ## Документы
 
-- [Контракт, материалы, жизненный цикл и ручная приёмка](docs/ar/approved-viewer-20261026.md)
-- [Камера: полный кадр, фокус и zoom по возможностям устройства, диагностика](docs/ar/camera-preview-20261027.md)
-- [Поиск, сопровождение и проверка QR](docs/ar/qr-tracking-20261027.md)
-- [Android и версия приложения](docs/ar/android-version-20261026.md)
+- [Контракт, материалы, жизненный цикл и ручная приёмка](../docs/ar/approved-viewer-20261026.md)
+- [Камера: полный кадр, фокус и zoom по возможностям устройства, диагностика](../docs/ar/camera-preview-20261027.md)
+- [Поиск, сопровождение и проверка QR](../docs/ar/qr-tracking-20261027.md)
+- [Android и версия приложения](../docs/ar/android-version-20261026.md)
 
 ## Проверки
 
@@ -35,6 +37,7 @@ node test/approved-browser.cjs        # нужен Playwright
 node test/approved-optical.cjs
 node test/camera-browser.cjs
 node test/tracker-browser.cjs
+node --test test/gbx.test.cjs qr-sheet/test/gbx-golden.test.cjs qr-sheet/test/gbx-transport.test.cjs
 ```
 
 Оптические фикстуры генерирует `qr-sheet/test/make_camera_fixture.py` (только тестовые данные). Переносимый ZIP: `python qr-sheet/package.py destination.zip`, папку обслуживать целиком по HTTPS.

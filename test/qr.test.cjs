@@ -172,3 +172,5 @@ require("./camera.test.cjs");
 require("./qr-tracker.test.cjs");
 
 require("./qr-overlay.test.cjs");
+
+require("./gbx.test.cjs");
