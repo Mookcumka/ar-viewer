@@ -2,8 +2,8 @@ importScripts("./version.js");
 // Scope-specific names avoid deleting caches belonging to other apps on the origin.
 const PREFIX = "ar-style-cube-" + encodeURIComponent(self.registration.scope) + "-";
 const CACHE = PREFIX + ARViewerVersion.version + "+" + ARViewerVersion.build + "-v" + ARViewerVersion.cacheVersion;
-const CORE = ["./", "./index.html", "./scan.html", "./manifest.webmanifest", "./icon.svg", "./ar-data.js", "./qr-geometry.js", "./gbx-geometry.js", "./gbx2-library.js", "./gbx2-geometry.js", "./viewer.js", "./camera.js", "./qr-tracker.js", "./qr-overlay.js", "./qr-track-worker.js", "./version.js", "./webxr.js", "./object-view.js", "./model-files.js", "./scan-feedback.js", "./usdz.js", "./quicklook.svg", "./offline.js"];
-const VENDOR = ["./vendor/gbx-earcut.js", "./vendor/jsfeat-min.js", "./vendor/qr-locator.js", "./vendor/aframe.min.js", "./vendor/aframe-ar.js", "./vendor/jsQR.js", "./vendor/meshopt_decoder.js", "./vendor/patt.hiro", "./vendor/camera_para.dat"];
+const CORE = ["./", "./index.html", "./scan.html", "./manifest.webmanifest", "./icon.svg", "./ar-data.js", "./qr-geometry.js", "./gbx-geometry.js", "./gbx2-library.js", "./gbx2-geometry.js", "./viewer.js", "./camera.js", "./qr-tracker.js", "./qr-overlay.js", "./qr-track-worker.js", "./version.js", "./webxr.js", "./object-view.js", "./model-files.js", "./scan-feedback.js", "./marker-ar.patt", "./usdz.js", "./quicklook.svg", "./offline.js"];
+const VENDOR = ["./vendor/gbx-earcut.js", "./vendor/jsfeat-min.js", "./vendor/qr-locator.js", "./vendor/aframe.min.js", "./vendor/aframe-ar.js", "./vendor/jsQR.js", "./vendor/meshopt_decoder.js", "./vendor/camera_para.dat"];
 const RESOURCES = [...CORE, ...VENDOR];
 const URLS = new Set(RESOURCES.map(path => new URL(path, self.registration.scope).href));
 self.addEventListener("install", event => {

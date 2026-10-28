@@ -4,7 +4,7 @@ const root=path.resolve(__dirname,'..'),out=process.env.TEST_OUTPUT||'/tmp/ar-vi
 const server=http.createServer((req,res)=>{let f=path.resolve(root,'.'+new URL(req.url,'http://localhost').pathname);if(fs.existsSync(f)&&fs.statSync(f).isDirectory())f=path.join(f,'index.html');if(!f.startsWith(root+path.sep)||!fs.existsSync(f)){res.statusCode=404;res.end();return;}res.setHeader('Content-Type',({'.js':'application/javascript','.html':'text/html','.svg':'image/svg+xml'})[path.extname(f)]||'application/octet-stream');res.end(fs.readFileSync(f));});
 (async()=>{
  await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
- const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream','--use-file-for-fake-video-capture='+(process.env.CAMERA_FIXTURES||'/tmp/ar-viewer-unified-test')+'/hiro.y4m','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+ const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream','--use-file-for-fake-video-capture='+(process.env.CAMERA_FIXTURES||'/tmp/ar-viewer-unified-test')+'/marker.y4m','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
  const results={},errors=[];
  try{
  for(const policy of ['supported','missing','reject','probe-error','front']){
@@ -38,7 +38,7 @@ const server=http.createServer((req,res)=>{let f=path.resolve(root,'.'+new URL(r
   await p.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));assert.equal(await p.evaluate(()=>cam.streams.every(s=>s.getTracks().every(t=>t.readyState==='ended'))),true);
   await p.evaluate(()=>{const s=document.querySelector('#start');if(!s.hidden)s.click();});await p.waitForFunction(()=>cam.requests.length===2&&document.querySelector('#camera-preview').srcObject?.active);
   if(policy==='supported'){
-   // Existing tracker must actually detect a Hiro pattern, not just own a playing video.
+   // The tracker must actually detect the sheet's «AR» pattern, not just own a playing video.
    await p.evaluate(()=>location.hash=encodeURIComponent('AR1;cube;2000;2000;2000;scale=50'));
    await p.waitForFunction(()=>ARViewer.glb());await p.locator('#diagnostics').evaluate(e=>e.open=true);await p.locator('#marker-view').click();
    await p.waitForFunction(()=>document.querySelector('a-marker')?.object3D.visible&&document.querySelector('[ar-follow]')?.object3D.visible,null,{timeout:30000});
@@ -48,7 +48,7 @@ const server=http.createServer((req,res)=>{let f=path.resolve(root,'.'+new URL(r
    await p.evaluate(()=>window.dispatchEvent(new Event('camera-error')));assert.equal(await p.evaluate(()=>document.querySelector('#camera-preview').srcObject?.active),true);
    await p.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));await p.evaluate(()=>cam.defer=true);await p.evaluate(()=>{const s=document.querySelector('#start');if(!s.hidden)s.click();});await p.waitForFunction(()=>cam.resolve);
    await p.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));await p.evaluate(()=>{cam.defer=false;cam.resolve();});await p.evaluate(()=>{const s=document.querySelector('#start');if(!s.hidden)s.click();});await p.waitForFunction(()=>document.querySelector('#camera-preview').srcObject?.active);
-   assert.equal(await p.evaluate(()=>cam.streams.filter(s=>s.active).length),1);results.hiro_pattern_single_stream_and_late_error=true;results.cancel_configuration_race=true;
+   assert.equal(await p.evaluate(()=>cam.streams.filter(s=>s.active).length),1);results.marker_pattern_single_stream_and_late_error=true;results.cancel_configuration_race=true;
   }
   results['policy_'+policy+'_layout_orientation_reopen']=true;await ctx.close();
  }

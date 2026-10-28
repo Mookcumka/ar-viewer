@@ -1,11 +1,11 @@
-/* One viewer: shared QR decoding and geometry, legacy Hiro, Apple Quick Look and WebXR surface AR. */
+/* One viewer: shared QR decoding and geometry, the sheet's «AR» marker, Apple Quick Look and WebXR surface AR. */
 (function () {
   "use strict";
   const $ = id => document.getElementById(id);
   const ui = { status: $("status"), title: $("title"), sheet: $("sheet"), dot: $("dot"), start: $("start"),
     look: $("look"), reticle: $("reticle"), body: document.body };
   const DEFAULT_CUBE = [59, 157, 221], DEFAULT_WALL = [185, 185, 185];
-  // Marker units: the black square of Hiro (40 mm on paper) is one unit.
+  // Marker units: the black square of the «AR» marker (40 mm on paper) is one unit.
   const MARKER_MM = 40;
   const quickLook = !!(document.createElement("a").relList?.supports?.("ar"));
   let model = null, loading = null, scene = null, marker = null, follower = null, scanTimer = 0, suspended = false, usdzUrl = null;
@@ -156,7 +156,7 @@
     $("webxr-open").hidden=!model||quickLook||!xrSupported||mode==='xr'||mode==='object';
     // Ready screen (P3/P7): one large action; the whole screen is the tap target. 3D only on Android.
     $("ready-3d").hidden=!ready||quickLook; $("ready-3d").classList.toggle('primary',ready&&!quickLook&&!xrChecking&&!xrSupported);
-    // Sheet QR (AR1/AR4/AR5) can also stand on the sheet's Hiro marker at the sheet scale.
+    // Sheet QR (AR1/AR4/AR5) can also stand on the sheet's «AR» marker at the sheet scale.
     $("ready-sheet").hidden=!ready||model.data.kind==='mesh';
     $("ready-title").textContent=arOpened?'Открыть ещё раз':'Модель собрана';
     $("ready-sub").textContent=arOpened?'Без повторного сканирования: модель на телефоне, пока открыта эта страница.':readyInfo;
@@ -317,7 +317,7 @@
     }
     // The model files (USDZ/GLB, 3D, WebXR) are centred on the plan so the model turns about itself.
     // Anchored (m=1): coordinates run from the marker centre, so the group moves back by the centre
-    // and on Hiro the model stands on its plan. Otherwise it stands on the marker centre.
+    // and on the marker the model stands on its plan. Otherwise it stands on the marker centre.
     const bounds = new THREE.Box3().setFromObject(inner), center = bounds.getCenter(new THREE.Vector3());
     inner.position.set(-center.x, -bounds.min.y, -center.z);
     const group = new THREE.Group();
@@ -379,7 +379,7 @@
       // Let the assembled cube finish its turn before the ready screen covers it.
       const rest = 650 - (performance.now() - completedAt); if (rest > 0) await new Promise(r => setTimeout(r, rest));
       if (ticket !== generation) { dispose(group); return; }
-      // CBX1 has no paper/Hiro placement contract: don't invent 1:N from exportScale.
+      // CBX1 has no paper/marker placement contract: don't invent 1:N from exportScale.
       model = { data: { kind: "mesh", identity: decoded.sha256, exportScale: decoded.scale, codec: decoded.codec }, group, holder: null };
       group = null; acceptedHash = decoded.sha256; collecting = false;
       report.scene = { packetVersion: packet.version, codec: decoded.codec, decodeMilliseconds: decoded.decodeMilliseconds, sha256: decoded.sha256, parts: decoded.qrCount, compressedBytes: decoded.compressedBytes, rawBytes: decoded.rawBytes, objects: decoded.objects, primitives: decoded.primitives, families: decoded.families, warnings: decoded.warnings,
@@ -458,7 +458,7 @@
     else { $("part-progress").hidden = true; }
     ui.title.textContent = ARCubeData.title(data);
     ui.sheet.textContent = data.sheet ? "Лист " + data.sheet : "Модель из QR";
-    ui.status.textContent = scene && !suspended ? "Наведите камеру на маркер Hiro" : "Откройте камеру и наведите её на маркер Hiro. Другие QR можно считывать, не выходя.";
+    ui.status.textContent = scene && !suspended ? "Наведите камеру на метку AR" : "Откройте камеру и наведите её на метку AR. Другие QR можно считывать, не выходя.";
     refreshAr();
     pauseCamera();
     try{presentModel();}
@@ -497,7 +497,7 @@
       if (o.visible !== shown) {
         o.visible = shown;
         ui.reticle.hidden = shown;
-        if(ui.status.dataset.error!=='true')ui.status.textContent = shown ? "Маркер найден" : "Наведите камеру на маркер Hiro или на QR другого листа";
+        if(ui.status.dataset.error!=='true')ui.status.textContent = shown ? "Метка найдена" : "Наведите камеру на метку AR или на QR другого листа";
       }
     }
   });
@@ -510,17 +510,17 @@
   function cameraVideo() { return mode === 'marker' ? $("arjs-video") : preview; }
   function cameraDiagnostics() {
     if (!ownedStream) return;
-    const detail = {...ARCamera.snapshot(ownedStream.getVideoTracks()[0]), preview: ARCamera.preview(preview), display:mode==='marker'?'hiro-arjs':'qr-source'};
+    const detail = {...ARCamera.snapshot(ownedStream.getVideoTracks()[0]), preview: ARCamera.preview(preview), display:mode==='marker'?'marker-arjs':'qr-source'};
     report.camera = detail;
     $("camera-info").textContent = JSON.stringify(detail, null, 2);
     log('camera-display',detail);
   }
   function showCameraMode() {
-    const hiro = mode === 'marker';
-    ui.body.classList.toggle('hiro',hiro); preview.hidden = hiro;
-    if(!hiro&&preview.srcObject&&preview.paused)preview.play().catch(()=>{});
-    if (scene) { scene.style.display = hiro ? '' : 'none'; if (hiro) scene.play(); else scene.pause(); }
-    const video = $("arjs-video"); if (video) video.style.display = hiro ? '' : 'none';
+    const onMarker = mode === 'marker';
+    ui.body.classList.toggle('on-marker',onMarker); preview.hidden = onMarker;
+    if(!onMarker&&preview.srcObject&&preview.paused)preview.play().catch(()=>{});
+    if (scene) { scene.style.display = onMarker ? '' : 'none'; if (onMarker) scene.play(); else scene.pause(); }
+    const video = $("arjs-video"); if (video) video.style.display = onMarker ? '' : 'none';
     cameraDiagnostics();
     if(ownedStream&&ARCamera.snapshot(ownedStream.getVideoTracks()[0]).settings.facingMode==='user')notice('Браузер выбрал переднюю камеру: задняя камера недоступна.','error');
   }
@@ -534,7 +534,7 @@
     log("camera-stop");
   }
 
-  // QR uses the uncropped preview. Hiro uses the same owned stream through the existing AR.js bridge.
+  // QR uses the uncropped preview. The marker uses the same owned stream through the existing AR.js bridge.
   function startScanning(video) {
     if (typeof jsQR !== "function" || !video) return;
     qrOverlay.start(video);
@@ -626,7 +626,7 @@
     if(ARCamera.snapshot(track).settings.facingMode==='user')notice('Браузер выбрал переднюю камеру: задняя камера недоступна.','error');
     preview.srcObject = stream; showCameraMode();
     preview.play().catch(error=>{if(ownedStream===stream){pauseCamera();toast(error.message);}});
-    // AR.js retains its original calibration/crop only for Hiro. It never owns QR-preview layout.
+    // AR.js retains its original calibration/crop only for the marker. It never owns QR-preview layout.
     if(mode!=='marker')return;
     attachMarker(stream,ticket);
   }
@@ -645,7 +645,7 @@
     scene.setAttribute("device-orientation-permission-ui", "enabled:false");
     marker = document.createElement("a-marker");
     marker.setAttribute("type", "pattern");
-    marker.setAttribute("url", "./vendor/patt.hiro");
+    marker.setAttribute("url", "./marker-ar.patt");
     // AR.js's own averaging; ar-follow smooths what is left.
     marker.setAttribute("smooth", "true");
     marker.setAttribute("smoothCount", "6");
@@ -659,7 +659,7 @@
     scene.appendChild(document.createElement("a-entity")).setAttribute("camera", "");
 
     ui.reticle.hidden = false;
-    ui.status.textContent = model ? "Наведите камеру на маркер Hiro" : "Наведите камеру на QR листа";
+    ui.status.textContent = model ? "Наведите камеру на метку AR" : "Наведите камеру на QR листа";
     document.body.appendChild(scene);
     }
     showCameraMode();
@@ -685,7 +685,7 @@
 
   function videoReady(video) {
     if (document.hidden || suspended || !ownedStream || video?.srcObject !== ownedStream) return;
-    if(ui.status.dataset.error!=='true')ui.status.textContent = model?.data.kind === "mesh" ? "Модель готова. Нажмите «Открыть в AR», если устройство поддерживает AR." : collecting ? "Считайте оставшиеся QR этого листа" : model ? "Наведите камеру на маркер Hiro" : "Наведите камеру на QR листа";
+    if(ui.status.dataset.error!=='true')ui.status.textContent = model?.data.kind === "mesh" ? "Модель готова. Нажмите «Открыть в AR», если устройство поддерживает AR." : collecting ? "Считайте оставшиеся QR этого листа" : model ? "Наведите камеру на метку AR" : "Наведите камеру на QR листа";
     ui.reticle.hidden = model?.data.kind === "mesh" || (mode === "scan" && !!model);
     if (mode === "scan" && !model && !collecting && $("hint").hidden) hint(SEARCH_HINT, 0);
     showCameraMode();
@@ -700,7 +700,7 @@
     const source = scene?.systems.arjs?._arSession?.arSource;
     if (source?.domElement) { source.ready = false; source.domElement.pause(); source.domElement.srcObject = null; source.domElement.style.display = "none"; }
     scene?.pause(); if (scene) scene.style.display = "none";
-    ui.body.classList.remove("live","hiro"); ui.reticle.hidden = true; hint('');
+    ui.body.classList.remove("live","on-marker"); ui.reticle.hidden = true; hint('');
     ui.start.hidden=!!model;ui.status.textContent = ""; delete ui.status.dataset.error;
   }
   // A QR opened from the system camera may reuse this tab and change only the fragment.
