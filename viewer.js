@@ -354,7 +354,7 @@
       // CBX1 has no paper/Hiro placement contract: don't invent 1:N from exportScale.
       model = { data: { kind: "mesh", identity: decoded.sha256, exportScale: decoded.scale, codec: decoded.codec }, group, holder: null };
       group = null; acceptedHash = decoded.sha256; collecting = false;
-      report.scene = { packetVersion: packet.version, codec: decoded.codec, decodeMilliseconds: decoded.decodeMilliseconds, sha256: decoded.sha256, parts: decoded.qrCount, compressedBytes: decoded.compressedBytes, rawBytes: decoded.rawBytes, objects: decoded.objects, primitives: decoded.primitives, families: decoded.families,
+      report.scene = { packetVersion: packet.version, codec: decoded.codec, decodeMilliseconds: decoded.decodeMilliseconds, sha256: decoded.sha256, parts: decoded.qrCount, compressedBytes: decoded.compressedBytes, rawBytes: decoded.rawBytes, objects: decoded.objects, primitives: decoded.primitives, families: decoded.families, warnings: decoded.warnings,
         usdzBytes: blob.size, meshes: decoded.meshes.length, vertices: decoded.vertices, triangles: decoded.triangles,
         extentMeters: decoded.extent, exportScale: decoded.scale, originMeters: decoded.originMeters, excluded: decoded.excluded };
       report.acceptance.integrityVerified = true; report.acceptance.usdzCreated = true;

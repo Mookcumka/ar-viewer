@@ -149,7 +149,7 @@
     if (!palette.length) fail("пустая палитра");
     const color = () => { const i = r.u8(); if (i >= palette.length) fail("цвет вне палитры"); return palette[i]; };
     const q = x => x * step, P2 = () => [q(r.u16()), q(r.u16())], P3 = () => [q(r.u16()), q(r.u16()), q(r.u16())];
-    const count = r.varint(LIMITS.records), sink = new Sink(), stats = { boxes: 0, prisms: 0, walls: 0, instances: 0, meshes: 0 }, families = {};
+    const count = r.varint(LIMITS.records), sink = new Sink(), stats = { boxes: 0, prisms: 0, walls: 0, instances: 0, meshes: 0 }, families = {}, warnings = [];
     for (let k = 0; k < count; k++) {
       const kind = r.u8(), rgba = color();
       if (kind === KIND.box) {
@@ -174,7 +174,15 @@
         const name = library.FAMILIES[code]?.name ?? String(code); families[name] = (families[name] || 0) + 1;
         // Library sizes are real millimetres; the export scale shrinks them like the rest of the model.
         const at = yawPlace(origin, yaw), place = p => at([p[0] * scale, p[1] * scale, p[2] * scale]);
-        for (const part of library.build(code, params, rgba)) boxes(sink, part.rgba, part.boxes, place);
+        let parts;
+        try { parts = library.build(code, params, rgba); }
+        catch (e) {
+          // One bad or unknown family must not lose the whole sheet: draw its grey envelope and say so.
+          const [w, d, h] = [0, 1, 2].map(i => (params[i] > 0 ? params[i] : 500) / 1000);
+          parts = [{ rgba: [150, 150, 150, 255], boxes: [[-w / 2, 0, 0, w / 2, h, d]] }];
+          warnings.push(e.message + " — показан серый габарит");
+        }
+        for (const part of parts) boxes(sink, part.rgba, part.boxes, place);
       } else if (kind === KIND.mesh) {
         stats.meshes++;
         const nv = r.varint(LIMITS.vertices), ni = r.varint(LIMITS.indices), codec = r.u8();
@@ -208,7 +216,7 @@
     const bounds = { min: min.map((x, i) => x - originMeters[i]), max: max.map((x, i) => x - originMeters[i]) };
     return { meshes, vertices: meshes.reduce((s, m) => s + m.positions.length / 3, 0), triangles: sink.triangles, bounds,
       extent: bounds.max.map((x, i) => x - bounds.min[i]), originMeters, scale, step, units: "m", up: "Y", rawBytes: input.length,
-      objects: count, primitives: stats, families, libraryVersion: libVersion,
+      objects: count, primitives: stats, families, warnings, libraryVersion: libVersion,
       excluded: ["GBX2: цвет без текстур; двери, окна и мебель из библиотеки просмотрщика по коду семейства"] };
   }
 

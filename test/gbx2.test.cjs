@@ -31,7 +31,8 @@ test('instance: library door/window/wc build in place, unknown code and newer li
  const s=await decode([{kind:'instance',color:3,code:1,origin:[1000,0,1000],yaw:16384,params:[900,2100,120,1]},
   {kind:'instance',color:0,code:2,origin:[3000,900,1000],params:[1500,1500,300]},{kind:'instance',color:0,code:10,origin:[0,0,0]}]);
  assert.deepEqual(s.families,{door:1,window:1,wc:1});assert.equal(s.primitives.instances,3);assert.ok(s.triangles>100);
- await assert.rejects(decode([{kind:'instance',color:0,code:999,origin:[0,0,0]}]),/неизвестно/);
+ const unknown=await decode([{kind:'box',color:0,origin:[0,0,0],size:[1000,1000,1000]},{kind:'instance',color:0,code:999,origin:[5000,0,0],params:[800,600,2000]}]);
+ assert.equal(unknown.primitives.boxes,1);assert.match(unknown.warnings[0],/999 неизвестно.*серый габарит/);close(unknown.extent[1],2,1e-6);
  await assert.rejects(gbx2.decode(gbx2.write({libVersion:99,palette:[W],records:[{kind:'box',color:0,origin:[0,0,0],size:[1,1,1]}]})),/Обновите/);
 });
 test('instance: export scale shrinks library sizes with the model',async()=>{
