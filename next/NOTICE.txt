@@ -1,0 +1,11 @@
+jsQR 1.4.0 (cozmo/jsQR). Apache License 2.0.
+Source/license: https://github.com/cozmo/jsQR
+Versioned package: https://cdn.jsdelivr.net/npm/jsqr@1.4.0/LICENSE
+Existing vendored dist reused byte-for-byte, no changes. See licenses/jsQR-LICENSE.txt.
+A-Frame 1.6.0 MIT: https://github.com/aframevr/aframe/tree/v1.6.0
+AR.js 3.4.7 MIT: https://github.com/AR-js-org/AR.js/tree/3.4.7
+ARToolkit5-js 0.3.1 LGPLv3 with additional permission: https://github.com/AR-js-org/artoolkit5-js/tree/0.3.1
+Three.js r164 MIT: https://github.com/mrdoob/three.js/tree/r164
+Existing vendors reused unchanged. Source/build details: ar-poc/vendor-local.ps1 in AR-Project.
+See licenses/ for the upstream terms, including LGPL/GPL and linking exception.
+USDZ writer and viewer: Mookcumka/AR-Project.
