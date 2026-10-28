@@ -9,6 +9,7 @@
   const LIMITS = Object.freeze({ raw: 1024 * 1024, records: 10000, palette: 255, loops: 64, loopPoints: 1024,
     openings: 64, params: 8, vertices: 1000000, indices: 3000000, triangles: 50000, renderGroups: 256 });
   const KIND = Object.freeze({ mesh: 0, box: 1, prism: 2, wall: 3, instance: 4 });
+  const FLAG_SHEET = 1; // Header flag bit 0: sheet scale and marker anchor follow libraryVersion.
   const fail = m => { throw new Error("GBX2: " + m); };
   const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
   const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
@@ -141,10 +142,16 @@
     if (!(input instanceof Uint8Array) || input.length < 18 || input.length > LIMITS.raw) fail("неверный размер");
     const r = reader(input);
     if (String.fromCharCode(r.u8(), r.u8(), r.u8(), r.u8()) !== "GBX2" || r.u8() !== 1) fail("неподдерживаемая версия");
-    const flags = r.u8(); if (flags) fail("неизвестные флаги");
+    const flags = r.u8(); if (flags & ~FLAG_SHEET) fail("неизвестные флаги");
     const step = r.f32(), scale = r.f32(), libVersion = r.u16();
     if (!(step > 0 && step <= 1) || !(scale > 0)) fail("неверный шаг сетки");
     if (libVersion > library.VERSION) fail("библиотека семейств v" + libVersion + " новее просмотрщика. Обновите просмотрщик");
+    // Sheet anchor (flag bit 0): print scale 1:N and the model point under the centre of the «AR» marker.
+    let sheetScale = 0, sheetAnchor = null;
+    if (flags & FLAG_SHEET) {
+      sheetScale = r.u16(); sheetAnchor = [r.u16() * step, r.u16() * step, r.u16() * step];
+      if (!(sheetScale >= 1)) fail("неверный масштаб листа");
+    }
     const palette = Array.from({ length: r.varint(LIMITS.palette) }, () => [r.u8(), r.u8(), r.u8(), r.u8()]);
     if (!palette.length) fail("пустая палитра");
     const color = () => { const i = r.u8(); if (i >= palette.length) fail("цвет вне палитры"); return palette[i]; };
@@ -216,17 +223,20 @@
     const bounds = { min: min.map((x, i) => x - originMeters[i]), max: max.map((x, i) => x - originMeters[i]) };
     return { meshes, vertices: meshes.reduce((s, m) => s + m.positions.length / 3, 0), triangles: sink.triangles, bounds,
       extent: bounds.max.map((x, i) => x - bounds.min[i]), originMeters, scale, step, units: "m", up: "Y", rawBytes: input.length,
+      // Same metres and origin as the meshes (after export scale and bottom-centre normalization).
+      sheet: sheetAnchor ? { scale: sheetScale, anchor: sheetAnchor.map((x, i) => x - originMeters[i]) } : undefined,
       objects: count, primitives: stats, families, warnings, libraryVersion: libVersion,
       excluded: ["GBX2: цвет без текстур; двери, окна и мебель из библиотеки просмотрщика по коду семейства"] };
   }
 
   // Reference writer. Values are already integer grid units / palette indices; mesh codec 0 only (meshopt is encoded by Exporto).
-  function write({ step = 0.001, scale = 1, libVersion = library.VERSION, palette, records }) {
+  function write({ step = 0.001, scale = 1, libVersion = library.VERSION, palette, records, sheet }) {
     const out = [], u8 = x => out.push(x & 255), u16 = x => { if (!Number.isInteger(x) || x < 0 || x > 65535) fail("u16 вне диапазона: " + x); u8(x); u8(x >> 8); },
       i16 = x => { if (!Number.isInteger(x) || x < -32768 || x > 32767) fail("i16 вне диапазона: " + x); u16(x & 0xffff); },
       varint = x => { do { let c = x & 127; x = Math.floor(x / 128); if (x) c |= 128; u8(c); } while (x); },
       f32 = x => { const b = new Uint8Array(4); new DataView(b.buffer).setFloat32(0, x, true); out.push(...b); };
-    out.push(71, 66, 88, 50); u8(1); u8(0); f32(step); f32(scale); u16(libVersion);
+    out.push(71, 66, 88, 50); u8(1); u8(sheet ? FLAG_SHEET : 0); f32(step); f32(scale); u16(libVersion);
+    if (sheet) { u16(sheet.scale); sheet.anchor.forEach(u16); }
     varint(palette.length); for (const c of palette) c.forEach(u8);
     varint(records.length);
     for (const x of records) {
