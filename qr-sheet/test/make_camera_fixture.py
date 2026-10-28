@@ -46,14 +46,15 @@ with path.open('wb') as out:
         for _ in range(80):out.write(b'FRAME\n'+frame.tobytes()+chroma)
 print(path)
 
-# Existing Hiro marker, not model geometry. Supply its image as the second argument.
-if len(sys.argv) > 2:
-    marker=Image.open(sys.argv[2]).convert('L').crop((58,31,492,465)).resize((240,240))
-    frame=Image.new('L',(640,480),255);frame.paste(marker,(200,120))
-    with (target/'hiro.y4m').open('wb') as out:
-        out.write(b'YUV4MPEG2 W640 H480 F10:1 Ip A1:1 C420jpeg\n')
-        for _ in range(200):out.write(b'FRAME\n'+frame.tobytes()+chroma)
-    print(target/'hiro.y4m')
+# The sheet's «AR» marker (black frame 1000 px at 100..1100), not model geometry. Default: AR-Project's
+# plugin/assets/ar-marker.png; in a copy without the plugin pass the PNG as the second argument.
+source=Path(sys.argv[2]) if len(sys.argv)>2 else Path(__file__).resolve().parents[3]/'plugin/assets/ar-marker.png'
+marker=Image.open(source).convert('L').crop((100,100,1100,1100)).resize((240,240))
+frame=Image.new('L',(640,480),255);frame.paste(marker,(200,120))
+with (target/'marker.y4m').open('wb') as out:
+    out.write(b'YUV4MPEG2 W640 H480 F10:1 Ip A1:1 C420jpeg\n')
+    for _ in range(200):out.write(b'FRAME\n'+frame.tobytes()+chroma)
+print(target/'marker.y4m')
 
 # Versioned QRL2 with actual meshoptimizer payload, C# unit fixture (not Revit).
 new_vectors=json.loads((Path(__file__).parent/'meshopt-vectors.json').read_text())

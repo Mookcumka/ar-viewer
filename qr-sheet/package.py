@@ -7,9 +7,9 @@ from urllib.parse import urlsplit
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = ['index.html','scan.html','ar-data.js','qr-geometry.js','gbx-geometry.js','viewer.js', 'camera.js','qr-tracker.js','qr-overlay.js','qr-track-worker.js','version.js','webxr.js','object-view.js','model-files.js','scan-feedback.js','usdz.js','offline.js','sw.js',
+FILES = ['index.html','scan.html','ar-data.js','qr-geometry.js','gbx-geometry.js','viewer.js', 'camera.js','qr-tracker.js','qr-overlay.js','qr-track-worker.js','version.js','webxr.js','object-view.js','model-files.js','scan-feedback.js','marker-ar.patt','usdz.js','offline.js','sw.js',
     'manifest.webmanifest','icon.svg','quicklook.svg','diagnostic-route.js','qr-sheet/index.html','qr-sheet/sw.js'] + \
-    ['vendor/'+name for name in ('gbx-earcut.js','jsQR.js','jsfeat-min.js','qr-locator.js','meshopt_decoder.js','aframe.min.js','aframe-ar.js','patt.hiro','camera_para.dat')]
+    ['vendor/'+name for name in ('gbx-earcut.js','jsQR.js','jsfeat-min.js','qr-locator.js','meshopt_decoder.js','aframe.min.js','aframe-ar.js','camera_para.dat')]
 
 def package(destination, viewer_url=None):
     content = {name: (ROOT/name).read_bytes() for name in FILES}
