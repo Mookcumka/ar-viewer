@@ -1,9 +1,9 @@
-/* GBX2 family library v2 (v1 + common residential kinds, 28.10.2026): parametric stand-ins that the QR references by code instead of geometry.
+/* GBX2 family library v3 (v2 + built-in oven, 28.10.2026): parametric stand-ins that the QR references by code instead of geometry.
  * Local frame: metres, +X along the host wall / width, +Y up, +Z into the room. Params are millimetres.
  * Codes are a public contract (docs/gbx2-wire-format.md): never renumber, only append. */
 (function (root) {
   "use strict";
-  const VERSION = 2;
+  const VERSION = 3;
   const GLASS = [170, 200, 230, 110], WHITE = [245, 245, 242, 255], METAL = [190, 192, 196, 255];
   const shade = (c, k) => [Math.round(c[0] * k), Math.round(c[1] * k), Math.round(c[2] * k), c[3]];
   // Each builder gets params in metres and the record colour, returns [{rgba, boxes:[[x0,y0,z0,x1,y1,z1]]}].
@@ -92,6 +92,11 @@
     46: { name: "cooker", params: ["width", "depth", "height"], defaults: [600, 600, 850],
       build([w, d, h], c) { const t = Math.min(0.03, h / 10);
         return [{ rgba: c, boxes: [[-w / 2, 0, 0, w / 2, h - t, d]] }, { rgba: [35, 35, 38, 255], boxes: [[-w / 2, h - t, 0, w / 2, h, d]] }]; } },
+    47: { name: "oven", params: ["width", "depth", "height"], defaults: [595, 560, 595],
+      // Built-in oven (v3). Origin: back centre at the oven bottom (Exporto places it at its real height).
+      build([w, d, h], c) { const x = w / 2, f = Math.min(0.02, d / 10), m = Math.min(0.03, w / 10), p = Math.min(0.12, h / 4);
+        return [{ rgba: c, boxes: [[-x, 0, 0, x, h, d - f]] }, { rgba: [35, 35, 38, 255], boxes: [[-x + m, m, d - f, x - m, h - p, d]] },
+          { rgba: METAL, boxes: [[-x + 2 * m, h - p + 0.02, d, x - 2 * m, h - p + 0.04, d + 0.03]] }]; } },
     50: { name: "ceilingLight", params: ["width", "depth", "height"], defaults: [400, 400, 100],
       // Origin: centre of the fixture bottom (Exporto places it at its real height).
       build([w, d, h], c) { return [{ rgba: c, boxes: [[-w / 2, 0, -d / 2, w / 2, h, d / 2]] }]; } },
