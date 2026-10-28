@@ -7,7 +7,7 @@
     try { return !!(await nav.xr.isSessionSupported("immersive-ar")); } catch (_) { return false; }
   }
   function create({ THREE, overlay, emit = () => {} }) {
-    let current = null, width = .35;
+    let current = null, width = .35, ratio = 0;
     const alive = run => current === run && !run.disposed && !run.closing;
     function notify(run, next, detail = {}) {
       if (current !== run) return;
@@ -29,8 +29,14 @@
     }
     function setWidth(metres) {
       if (!Number.isFinite(metres) || metres < .05 || metres > 1) throw new Error("Размер просмотра вне диапазона 5–100 см");
-      width = metres; if (current?.content) current.content.scale.setScalar(width / current.extent);
+      width = metres; ratio = 0; apply();
     }
+    // Real-world ratio of the restored model (1 = 1:1, 0.02 = 1:50). The model is in metres.
+    function setRatio(value) {
+      if (!Number.isFinite(value) || value <= 0 || value > 1) throw new Error("Масштаб вне диапазона");
+      ratio = value; apply();
+    }
+    function apply() { if (current?.content) current.content.scale.setScalar(ratio ? ratio : width / current.extent); }
     function reset() {
       const run = current; if (!alive(run || {})) return;
       run.placed = false; run.pendingPose = null; if (run.placement) run.placement.visible = false;
@@ -69,7 +75,7 @@
         if (!Number.isFinite(run.extent) || run.extent <= 0) throw new Error("У модели нет конечных размеров");
         const center = bounds.getCenter(new THREE.Vector3());
         const offset = new THREE.Group(); offset.add(clone); offset.position.set(-center.x, -bounds.min.y, -center.z);
-        run.content = new THREE.Group(); run.content.add(offset); run.placement.add(run.content); setWidth(width);
+        run.content = new THREE.Group(); run.content.add(offset); run.placement.add(run.content); apply();
         run.reticle = new THREE.Mesh(new THREE.RingGeometry(.035, .045, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x7fc4c8 }));
         run.reticle.matrixAutoUpdate = false; run.reticle.visible = false; run.world.add(run.reticle);
         const reference = await acquired.requestReferenceSpace("local"); if (!alive(run)) return; run.reference = reference;
@@ -84,7 +90,7 @@
         listen(run, acquired, "select", () => {
           if (!alive(run) || !run.pendingPose || run.placed) return;
           run.placement.matrix.fromArray(run.pendingPose); run.placement.visible = true; run.placed = true; run.reticle.visible = false;
-          notify(run, "placed", { displayExtentMetres: width });
+          notify(run, "placed", { displayExtentMetres: ratio ? run.extent * ratio : width, ratio: ratio || null });
         });
         await renderer.xr.setSession(acquired); if (!alive(run)) return;
         notify(run, "searching", { domOverlay: !!acquired.domOverlayState });
@@ -113,7 +119,7 @@
         cleanup(run); if (reportError) throw error;
       }
     }
-    return { start, end, reset, setWidth, get active() { return !!current; } };
+    return { start, end, reset, setWidth, setRatio, get active() { return !!current; } };
   }
   const api = { supported, create }; root.ARWebXR = api;
   if (typeof module === "object" && module.exports) module.exports = api;

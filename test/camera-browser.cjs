@@ -21,7 +21,7 @@ const server=http.createServer((req,res)=>{let f=path.resolve(root,'.'+new URL(r
     t.applyConstraints=async c=>{cam.controls.push(c);if(cam.defer)await new Promise(r=>cam.resolve=r);if(policy==='reject'&&c.advanced.some(x=>x.focusMode))throw new DOMException('runtime rejection','OverconstrainedError');last=c;for(const x of c.advanced)Object.assign(actual,x);};return s;
    };
   },policy);
-  await p.goto(base+'/?diagnostics=1');await p.waitForFunction(()=>window.ARViewer);await p.locator('#start').click();await p.waitForFunction(()=>document.querySelector('#camera-preview').videoWidth>0);
+  await p.goto(base+'/?diagnostics=1');await p.waitForFunction(()=>window.ARViewer);await p.evaluate(()=>{const s=document.querySelector('#start');if(!s.hidden)s.click();});await p.waitForFunction(()=>document.querySelector('#camera-preview').videoWidth>0);
   if(policy==='front')assert.match(await p.locator('#status').innerText(),/переднюю камеру/);
   assert.equal(await p.locator('a-scene').count(),0);assert.equal(await p.evaluate(()=>cam.requests.length),1);
   const request=await p.evaluate(()=>cam.requests[0]);assert.deepEqual(request.video.facingMode,{ideal:'environment'});if(policy==='probe-error')assert.equal(request.video.resizeMode,undefined);else assert.deepEqual(request.video.resizeMode,{ideal:'none'});assert.equal(request.video.aspectRatio,undefined);
@@ -36,7 +36,7 @@ const server=http.createServer((req,res)=>{let f=path.resolve(root,'.'+new URL(r
   await p.locator('#diagnostics').evaluate(e=>e.open=false);await p.screenshot({path:out+'/camera-'+policy+'.png'});
   await p.locator('#new-sheet').click();assert.equal(await p.evaluate(()=>cam.requests.length),1);if(policy==='front')assert.match(await p.locator('#status').innerText(),/переднюю камеру/);
   await p.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));assert.equal(await p.evaluate(()=>cam.streams.every(s=>s.getTracks().every(t=>t.readyState==='ended'))),true);
-  await p.locator('#start').click();await p.waitForFunction(()=>cam.requests.length===2&&document.querySelector('#camera-preview').srcObject?.active);
+  await p.evaluate(()=>{const s=document.querySelector('#start');if(!s.hidden)s.click();});await p.waitForFunction(()=>cam.requests.length===2&&document.querySelector('#camera-preview').srcObject?.active);
   if(policy==='supported'){
    // Existing tracker must actually detect a Hiro pattern, not just own a playing video.
    await p.evaluate(()=>location.hash=encodeURIComponent('AR1;cube;2000;2000;2000;scale=50'));
@@ -46,8 +46,8 @@ const server=http.createServer((req,res)=>{let f=path.resolve(root,'.'+new URL(r
    await p.locator('#new-sheet').click();await p.waitForFunction(()=>!document.querySelector('#camera-preview').hidden&&document.querySelector('#camera-preview').videoWidth>0);
    assert.equal(await p.locator('a-scene').isVisible(),false);assert.equal(await p.locator('#arjs-video').isVisible(),false);
    await p.evaluate(()=>window.dispatchEvent(new Event('camera-error')));assert.equal(await p.evaluate(()=>document.querySelector('#camera-preview').srcObject?.active),true);
-   await p.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));await p.evaluate(()=>cam.defer=true);await p.locator('#start').click();await p.waitForFunction(()=>cam.resolve);
-   await p.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));await p.evaluate(()=>{cam.defer=false;cam.resolve();});await p.locator('#start').click();await p.waitForFunction(()=>document.querySelector('#camera-preview').srcObject?.active);
+   await p.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));await p.evaluate(()=>cam.defer=true);await p.evaluate(()=>{const s=document.querySelector('#start');if(!s.hidden)s.click();});await p.waitForFunction(()=>cam.resolve);
+   await p.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));await p.evaluate(()=>{cam.defer=false;cam.resolve();});await p.evaluate(()=>{const s=document.querySelector('#start');if(!s.hidden)s.click();});await p.waitForFunction(()=>document.querySelector('#camera-preview').srcObject?.active);
    assert.equal(await p.evaluate(()=>cam.streams.filter(s=>s.active).length),1);results.hiro_pattern_single_stream_and_late_error=true;results.cancel_configuration_race=true;
   }
   results['policy_'+policy+'_layout_orientation_reopen']=true;await ctx.close();
