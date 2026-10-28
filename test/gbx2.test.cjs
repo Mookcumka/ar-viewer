@@ -89,3 +89,12 @@ test('library v3: every family builds from defaults and decodes in place',async(
   close(s.bounds.min[1],0,1e-9);
  }
 });
+test('sheet flag: print scale and marker anchor in model metres, absent without the flag',async()=>{
+ const box={kind:'box',color:0,origin:[1000,0,2000],size:[4000,3000,2000]}; // bottom-centre (3,0,3) m
+ const s=await gbx2.decode(gbx2.write({palette:[W],records:[box],sheet:{scale:50,anchor:[3000,0,3000]}}));
+ assert.equal(s.sheet.scale,50);s.sheet.anchor.forEach(x=>close(x,0,1e-6));
+ const corner=await gbx2.decode(gbx2.write({palette:[W],records:[box],sheet:{scale:100,anchor:[1000,0,2000]}}));
+ close(corner.sheet.anchor[0],-2,1e-6);close(corner.sheet.anchor[2],-1,1e-6);
+ assert.equal((await decode([box])).sheet,undefined);
+ const bad=gbx2.write({palette:[W],records:[box]});bad[5]=2;await assert.rejects(gbx2.decode(bad),/флаги/);
+});
