@@ -81,8 +81,8 @@ test('QRL4 packets collect in any order and restore the GBX2 scene end to end',a
  const bad=packets[1].slice();bad[bad.length-1]^=1;const d=new qr.Collector();d.add(packets[0]);d.add(bad);await assert.rejects(qr.restore(d.join()),/SHA-256/);
  assert.throws(()=>qr.packet(Uint8Array.from([...packets[0].subarray(0,15)])),/QRL4/);
 });
-test('library v2: every family builds from defaults and decodes in place',async()=>{
- const lib=require('../gbx2-library.js');assert.equal(lib.VERSION,2);
+test('library v3: every family builds from defaults and decodes in place',async()=>{
+ const lib=require('../gbx2-library.js');assert.equal(lib.VERSION,3);
  for(const code of Object.keys(lib.FAMILIES).map(Number)){
   const s=await decode([{kind:'instance',color:0,code,origin:[0,0,0]}]);
   assert.equal(s.primitives.instances,1,lib.FAMILIES[code].name);assert.ok(s.triangles>=12,lib.FAMILIES[code].name);

@@ -1,8 +1,8 @@
 {
   "schema": "ar-viewer-shared-runtime-1",
-  "sourceCommit": "961f1eab8fb0d10efdb7bd1d8c2573b452f5c419",
-  "appVersion": "0.5.0-rc.4",
-  "build": "20261028.5",
+  "sourceCommit": "e1d91093bc7542f0c5909350dbf9a4e6c6051b44",
+  "appVersion": "0.5.0-rc.5",
+  "build": "20261028.6",
   "sha256": {
     "index.html": "abc83260a1f52b618472b0c9a7f585651d15fc0895b57c674b592a6ec50a8ada",
     "scan.html": "ce64bdd82c994118ea6249439ccdbf489b31680830e62405b19e09c12e00b917",
@@ -25,7 +25,7 @@
     "vendor/jsQR.js": "bc40c8a15196236b2314db0856f72ca0b49980cd5413b8c852a7349f5fee0859",
     "vendor/meshopt_decoder.js": "ec77738520a1e528d046d0da5b6e54dd404e92b3baccfc8fd48dea3486dffd20",
     "scan-feedback.js": "5e9ea20b2a8d6168000d3705d13ff21d6202edb55b5a57d81f4c3de87fe6bff2",
-    "version.js": "3df2949f1972fae7f9ba0fd1b718a9b2ca365d4054705990ea7b88f1a29526bd",
+    "version.js": "2908546f770a152fc9990719e3880c9af9e2776ba185bdb5295c53e7c37bfb66",
     "webxr.js": "65716c063c7f3a467417965f024e889a5a72f5e8ab3a982a551dcda03836e112",
     "model-files.js": "fb143ff4f3cb5b7937c43b8085b78af8886ed8317d947be5c060a14c54ee7bf3",
     "object-view.js": "b762818d8c06135caff37b1e382726b738153d7e2ff8c7965e411b7c483c21d0",
@@ -36,7 +36,7 @@
     "vendor/jsfeat-min.js": "974327515d68c91258efd3befa03622c41bbed8e3172771994604325799977a1",
     "vendor/qr-locator.js": "6dab6b4270d732ac6a2159a34694186e71f1f6573831b4f548f566b044871d3b",
     "gbx-geometry.js": "a0bf9d20d791a8986e1813a793249583b1b2e2533e26a08766e96557ce5281d2",
-    "gbx2-library.js": "5fcccdcb27272f2a6fefe14de7b51e6bbf9118296286f77093aeae51330eae1a",
+    "gbx2-library.js": "04e80903213d4d96c5af2de4192a0570606b361ba7fc09a0c698819b00f81053",
     "gbx2-geometry.js": "5e6ccb70594a24a6e9fa693e8ddb9cb192f072c04f0b5b280ac7769c3e97e533",
     "vendor/gbx-earcut.js": "3d23a2657cbdb4a75d3af7b073061620fe5d8fdeb12ce43d1d34c5247b33fbe2"
   }
