@@ -92,6 +92,23 @@ const server=http.createServer((req,res)=>{let f=path.resolve(root,'.'+new URL(r
  assert.deepEqual(placed,{scale:0.25,offset:[-1,-0,2],root:true});assert.equal(await p.locator('#ready-sheet').isVisible(),true);
  await p.locator('#ready-sheet').click();await p.waitForFunction(()=>document.body.classList.contains('on-marker')&&document.querySelector('#arjs-video')?.srcObject?.active&&document.querySelector('[ar-follow]')?.object3D.children.includes(ARViewer.model().holder));
  await p.locator('#view-close').click();await p.waitForFunction(()=>document.body.classList.contains('ready'));await p.evaluate(()=>ExportoQr.restore=restoreOriginal);results.exporto_sheet_binding_on_marker=true;
+ // ARP1 album passport (AR Style 0.81): a card with the album and its sheets, no model; «Сканировать листы» goes back to scanning.
+ const passport=v=>'ARP1;data='+zlib.gzipSync(Buffer.from(JSON.stringify(v),'utf8')).toString('base64url');
+ const card=passport({v:1,a:'Кольская 8 <img src=x onerror=window.pwned=1>',p:'Кольская 8, корпус 1',r:'2',d:'29.10.2026',st:'РП',l:[['00.1','Обложка'],['01','План квартиры'],['02','Развёртки']]});
+ await newSheet();await p.evaluate(payload=>location.hash=encodeURIComponent(payload),card);await p.waitForFunction(()=>!document.querySelector('#passport').hidden);
+ assert.equal(await p.locator('#passport-title').innerText(),'Кольская 8 <img src=x onerror=window.pwned=1>');assert.equal(await p.evaluate(()=>window.pwned),undefined);
+ assert.equal(await p.locator('#passport-meta').innerText(),'Редакция 2 · 29.10.2026 · РП');assert.deepEqual(await p.locator('#passport-sheets li .page').allInnerTexts(),['1','2','3']);
+ assert.equal(await p.locator('#passport-sheets li').nth(1).innerText().then(t=>t.replace(/\s+/g,' ')),'2 01 План квартиры');assert.equal(await p.evaluate(()=>ARViewer.model()),null);
+ const close=await p.locator('#passport-close').boundingBox();assert.ok(close.y+close.height<=852&&close.x>=0);
+ await p.locator('#passport-close').click();assert.equal(await p.locator('#passport').isVisible(),false);await p.waitForFunction(()=>fake.streams.some(s=>s.getTracks().some(t=>t.readyState==='live')));
+ // Camera path: the cover QR is a viewer URL; while the cover stays in view the closed card does not come back, another passport opens.
+ const url='https://mookcumka.github.io/ar-viewer/#'+card,other='https://mookcumka.github.io/ar-viewer/#'+passport({v:1,a:'Тест AR',l:[['AR-T.01','Куб']]});
+ await p.evaluate(([u,o])=>{window.textQueue=[u,u,o];const prev=window.jsQR;window.jsQR=(...a)=>{const t=textQueue.shift();if(t===undefined){window.jsQR=prev;return null;}return{binaryData:Array.from(new TextEncoder().encode(t)),data:t,location:{topLeftCorner:{x:30,y:30},topRightCorner:{x:250,y:30},bottomRightCorner:{x:250,y:250},bottomLeftCorner:{x:30,y:250}}};};},[url,other]);
+ await p.waitForFunction(()=>document.querySelector('#passport-title').textContent==='Тест AR'&&!document.querySelector('#passport').hidden,null,{timeout:15000});
+ assert.equal(await p.evaluate(()=>ARViewer.model()),null);await p.locator('#passport-close').click();
+ // A broken passport is an error, not a card.
+ await p.evaluate(()=>location.hash=encodeURIComponent('ARP1;data=AAAA'));await p.waitForFunction(()=>document.querySelector('#status').dataset.error==='true');assert.equal(await p.locator('#passport').isVisible(),false);
+ results.album_passport_card=true;
  // Legacy shapes are still accepted, preserve opacity, and the «AR» marker cannot overlap XR camera ownership.
  await newSheet();await p.evaluate(payload=>location.hash=encodeURIComponent(payload),cube);await p.waitForFunction(()=>ARViewer.model()?.data.kind==='cube'&&ARViewer.glb());
  const alpha=await p.evaluate(async()=>{const bytes=new Uint8Array(await ARViewer.usdz().arrayBuffer());return new TextDecoder().decode(bytes).includes('inputs:opacity = 0.85')});assert.equal(alpha,true);

@@ -121,6 +121,7 @@
     const ticket = ++generation; loading = null; collector.reset(); collecting = false; verifying = false;
     acceptedHash = blockedHash = blockedLegacy = null; meshFailed = false; parts = [];
     acceptedLegacyParts.clear(); pendingLegacyParts.clear(); blockedLegacyParts.clear();
+    passportShown = null; passportTicket++; $("passport").hidden = true;
     const ended = clearModel(); clearFeedback(true); report.scene = null; resetAcceptance(); report.scan = {accepted:0,duplicates:0,frames:0};
     mode = "scan"; ui.body.classList.remove("xr","object"); $("xr-controls").hidden = true;
     ui.start.disabled = false; ui.title.textContent = "AR Viewer"; ui.sheet.textContent = "";
@@ -418,8 +419,39 @@
     return { state: meshFailed ? "error" : "accepted" };
   }
 
+  // ARP1 album passport: a card over whatever is on screen. The model, parts and camera stay as they are.
+  let passportShown = null, passportTicket = 0;
+  async function showPassport(data, source) {
+    // The cover stays in view after «Сканировать листы»: the same passport does not reopen until a new sheet or another passport.
+    if (data.payload === passportShown) return;
+    const ticket = ++passportTicket, info = await ARCubeData.decodePassport(data.data);
+    if (ticket !== passportTicket) return;
+    passportShown = data.payload;
+    $("passport-title").textContent = info.album || "Альбом без названия";
+    $("passport-project").textContent = info.project;
+    $("passport-project").hidden = !info.project;
+    $("passport-meta").textContent = [info.revision && "Редакция " + info.revision, info.date, info.status].filter(Boolean).join(" · ");
+    $("passport-meta").hidden = !$("passport-meta").textContent;
+    const list = $("passport-sheets");
+    list.replaceChildren(...info.sheets.map(sheet => {
+      const row = document.createElement("li"), page = document.createElement("span"), number = document.createElement("b"), name = document.createElement("span");
+      page.className = "page"; page.textContent = String(sheet.page); number.textContent = sheet.number; name.textContent = sheet.title;
+      row.append(page, number, name); return row;
+    }));
+    $("passport-count").textContent = info.sheets.length ? "Листов: " + info.sheets.length : "Список листов пуст";
+    $("passport").hidden = false; hint("");
+    log("passport", { source, sheets: info.sheets.length });
+    $("passport-close").focus({ preventScroll: true });
+  }
+  function closePassport() {
+    if ($("passport").hidden) return;
+    $("passport").hidden = true; log("passport-close");
+    if (!model && mode === "scan" && !ownedStream && !opening && autoCamera && !document.hidden) startCamera();
+  }
+
   async function load(payload, announce, source = "url") {
     let data = ARCubeData.parse(payload);
+    if (data.kind === "passport") return showPassport(data, source);
     if (data.payload === blockedLegacy || blockedLegacyParts.has(data.payload) || acceptedLegacyParts.has(data.payload) || pendingLegacyParts.has(data.payload)) return;
     let receivedParts = [];
     const partInfo = data.kind === "part" ? { number: data.part, count: data.of } : null;
@@ -736,6 +768,8 @@
   });
 
   $("new-sheet").onclick = newSheet;
+  $("passport-close").onclick = closePassport;
+  document.addEventListener("keydown", e => { if (e.key === "Escape") closePassport(); });
   ui.look.addEventListener("click", e => { report.acceptance.quickLookRequested = true; log("quicklook-request");
     // Quick Look covers the page; on return the ready screen offers to open it again.
     if (e.isTrusted || navigator.userActivation?.isActive) { arOpened = true; setTimeout(refreshAr, 600); } });
