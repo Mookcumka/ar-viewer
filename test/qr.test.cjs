@@ -174,3 +174,23 @@ require("./qr-tracker.test.cjs");
 require("./qr-overlay.test.cjs");
 
 require("./gbx.test.cjs");
+test("ARP1 album passport: parse, decode, page = place in the list, bad data rejected", async () => {
+  const zlib = require("node:zlib");
+  const pack = value => zlib.gzipSync(Buffer.from(typeof value === "string" ? value : JSON.stringify(value), "utf8")).toString("base64url");
+  const json = { v: 1, a: "Кольская 8", p: "Кольская 8, корпус 1", r: "2", d: "29.10.2026", st: "Рабочий проект",
+    l: [["00.1", "Обложка"], ["01", "План квартиры"], [2, "Развёртки"]] };
+  const value = data.fromUrl("https://mookcumka.github.io/ar-viewer/#ARP1;data=" + pack(json));
+  assert.equal(value.kind, "passport");
+  assert.equal(data.title(value), "Паспорт альбома");
+  const info = await data.decodePassport(value.data);
+  assert.equal(info.album, "Кольская 8");
+  assert.equal(info.revision, "2");
+  assert.deepEqual(info.sheets[2], { page: 3, number: "2", title: "Развёртки" });
+  // Empty fields are omitted by AR Style.
+  assert.deepEqual(await data.decodePassport(pack({ v: 1, a: "А" })), { album: "А", project: "", revision: "", date: "", status: "", sheets: [] });
+  for (const bad of [pack({ v: 2, a: "А" }), pack("[1]"), pack("не json"), pack({ v: 1, l: "x" }), pack({ v: 1, l: [[{}, "x"]] }),
+    pack({ v: 1, a: { x: 1 } }), "!!!", Buffer.from("plain").toString("base64url")])
+    await assert.rejects(data.decodePassport(bad), bad.slice(0, 20));
+  assert.throws(() => data.parse("ARP1;data="));
+  assert.throws(() => data.parse("ARP1;data=" + "A".repeat(2401)));
+});
