@@ -1,6 +1,6 @@
 {
   "schema": "ar-viewer-shared-runtime-1",
-  "sourceCommit": "e98a3ecb2c42a68c9484e1c6bae33c48f3161c6d",
+  "sourceCommit": "b0a0f00dc67e333eb6d2d295b9cad98b528b9580",
   "appVersion": "0.5.0-rc.10",
   "build": "20261103.1",
   "sha256": {
